@@ -12,6 +12,9 @@ required=(
   README.fa.md
   LICENSE
   setup.sh
+  .gitattributes
+  publish-to-github.ps1
+  WINDOWS-PUBLISH.md
   native/setup.sh
   native/install.sh
   native/config/warp-gateway.env.example
@@ -30,5 +33,20 @@ for path in "${required[@]}"; do
     exit 1
   }
 done
+
+
+# Windows publishing and extracted-file resilience checks.
+grep -q 'exec bash .*native/setup.sh' "${ROOT}/setup.sh" || {
+  echo "Top-level native dispatch must invoke Bash explicitly." >&2
+  exit 1
+}
+grep -q 'exec bash .*docker/setup.sh' "${ROOT}/setup.sh" || {
+  echo "Top-level Docker dispatch must invoke Bash explicitly." >&2
+  exit 1
+}
+grep -q '\*.sh text eol=lf' "${ROOT}/.gitattributes" || {
+  echo "Shell scripts must be pinned to LF line endings." >&2
+  exit 1
+}
 
 echo "Syntax and repository structure checks passed."

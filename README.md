@@ -55,12 +55,25 @@ Recommended starting resources:
 20 GB disk
 ```
 
+## Publish from Windows
+
+The repository includes `publish-to-github.ps1` to avoid executable-bit and CRLF problems when publishing from Windows. It clones the current remote into a temporary directory, synchronizes this package, records Linux executable modes in the Git index, runs available checks, commits, and pushes.
+
+Run in PowerShell from the extracted project directory:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\publish-to-github.ps1 `
+  -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
+  -CommitMessage "Release v0.3.1: harden Windows publishing"
+```
+
 ## Quick start
 
 ```bash
 git clone https://github.com/Alireza-Oliaiy/warp-egress-gateway.git
 cd warp-egress-gateway
-sudo ./setup.sh
+sudo bash setup.sh
 ```
 
 The selector asks for the deployment edition:
@@ -75,7 +88,7 @@ Then it asks for the main IP and the transit IP/CIDR.
 ### Native unattended example
 
 ```bash
-sudo ./setup.sh --mode native \
+sudo bash setup.sh --mode native \
   --uplink-ip 172.20.31.5 \
   --transit-ip 10.1.1.230/30 \
   --accept-tos \
@@ -85,7 +98,7 @@ sudo ./setup.sh --mode native \
 ### Docker unattended example
 
 ```bash
-sudo ./setup.sh --mode docker \
+sudo bash setup.sh --mode docker \
   --uplink-ip 172.20.31.5 \
   --transit-ip 10.1.1.230/30 \
   --accept-tos \
@@ -101,13 +114,13 @@ Advanced configuration-file installation:
 ```bash
 cp native/config/warp-gateway.env.example native/config/warp-gateway.env
 editor native/config/warp-gateway.env
-sudo ./native/install.sh --config native/config/warp-gateway.env
+sudo bash native/install.sh --config native/config/warp-gateway.env
 ```
 
 Reuse an existing profile:
 
 ```bash
-sudo ./native/install.sh \
+sudo bash native/install.sh \
   --config native/config/warp-gateway.env \
   --profile /etc/wireguard/warp0.conf
 ```
@@ -158,7 +171,7 @@ docker compose down
 Remove the Docker edition:
 
 ```bash
-sudo ./docker/uninstall.sh
+sudo bash docker/uninstall.sh
 ```
 
 See [Docker deployment](docs/docker.md) for the security and networking model.

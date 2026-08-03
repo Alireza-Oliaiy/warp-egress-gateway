@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-08-03
+
+- Fixed native and Docker status output so all three interfaces are displayed.
+- Added Windows-safe publishing automation with Git executable-mode handling.
+- Added `.gitattributes` to enforce LF line endings for shell scripts.
+- Made the top-level selector invoke child installers through Bash, reducing dependency on extracted filesystem permissions.
+- Updated documentation to use `sudo bash setup.sh`, which is resilient even before executable modes are restored.
+
 ## 0.3.0 - 2026-08-03
 
 - Split the repository into `native/` and `docker/` deployment editions.

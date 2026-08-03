@@ -2,7 +2,7 @@
 
 این پروژه یک Ubuntu را به **Next-Hop شفاف** تبدیل می‌کند. فایروال یا روتر، ترافیک انتخاب‌شده را به کارت Transit سرور می‌دهد و سرور آن را از `warp0` و Cloudflare WARP خارج می‌کند؛ در عین حال Default Route مدیریت Ubuntu روی لینک اصلی باقی می‌ماند.
 
-این Repository از نسخه `0.3.0` دو بخش مستقل دارد:
+این Repository از نسخه `0.3.1` دو بخش مستقل دارد:
 
 | بخش | روش اجرا | کاربرد مناسب |
 |---|---|---|
@@ -20,12 +20,27 @@
 
 > این پروژه وابسته به Cloudflare نیست. ابزار `wgcf` غیررسمی است. قبل از ثبت حساب، شرایط Cloudflare را بررسی کن.
 
+## انتشار از Windows روی GitHub
+
+برای جلوگیری از مشکل Permission و CRLF، فایل `publish-to-github.ps1` همراه پروژه ارائه شده است. این اسکریپت آخرین نسخه Repository را در یک پوشه موقت Clone می‌کند، فایل‌های این بسته را روی آن Sync می‌کند، Line Endingهای Shell را LF نگه می‌دارد، مجوز اجرایی اسکریپت‌ها را داخل Git ثبت می‌کند و سپس Commit و Push انجام می‌دهد.
+
+در PowerShell داخل پوشه Extractشده اجرا کن:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\publish-to-github.ps1 `
+  -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
+  -CommitMessage "Release v0.3.1: harden Windows publishing"
+```
+
+Git Credential Manager ممکن است مرورگر را برای ورود به GitHub باز کند. کلید یا پروفایل WARP داخل Repository کپی نمی‌شود.
+
 ## نصب سریع
 
 ```bash
 git clone https://github.com/Alireza-Oliaiy/warp-egress-gateway.git
 cd warp-egress-gateway
-sudo ./setup.sh
+sudo bash setup.sh
 ```
 
 بعد انتخاب می‌کنی:
@@ -40,7 +55,7 @@ sudo ./setup.sh
 ### نصب Native بدون پرسش
 
 ```bash
-sudo ./setup.sh --mode native \
+sudo bash setup.sh --mode native \
   --uplink-ip 172.20.31.5 \
   --transit-ip 10.1.1.230/30 \
   --accept-tos \
@@ -50,7 +65,7 @@ sudo ./setup.sh --mode native \
 ### نصب Docker بدون پرسش
 
 ```bash
-sudo ./setup.sh --mode docker \
+sudo bash setup.sh --mode docker \
   --uplink-ip 172.20.31.5 \
   --transit-ip 10.1.1.230/30 \
   --accept-tos \
@@ -66,13 +81,13 @@ sudo ./setup.sh --mode docker \
 ```bash
 cp native/config/warp-gateway.env.example native/config/warp-gateway.env
 nano native/config/warp-gateway.env
-sudo ./native/install.sh --config native/config/warp-gateway.env
+sudo bash native/install.sh --config native/config/warp-gateway.env
 ```
 
 استفاده از پروفایل فعلی:
 
 ```bash
-sudo ./native/install.sh \
+sudo bash native/install.sh \
   --config native/config/warp-gateway.env \
   --profile /etc/wireguard/warp0.conf
 ```
@@ -120,7 +135,7 @@ docker compose down
 حذف نسخه Docker:
 
 ```bash
-sudo ./docker/uninstall.sh
+sudo bash docker/uninstall.sh
 ```
 
 ## رفتار امنیتی

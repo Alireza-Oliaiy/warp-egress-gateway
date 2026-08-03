@@ -6,7 +6,7 @@ CONFIG_SOURCE="${REPO_DIR}/config/warp-gateway.env"
 
 usage() {
   cat <<USAGE
-Usage: sudo ./install.sh [--config PATH] [--profile PATH]
+Usage: sudo bash install.sh [--config PATH] [--profile PATH]
 
   --config PATH   Deployment configuration file.
   --profile PATH  Existing WireGuard WARP profile. Overrides EXISTING_WARP_PROFILE.
@@ -88,7 +88,7 @@ install -d -m 755 "${LIB_DIR}"
 install -m 755 "${REPO_DIR}"/scripts/*.sh "${LIB_DIR}/"
 install -m 755 "${REPO_DIR}/scripts/warp-gateway" /usr/local/sbin/warp-gateway
 
-"${LIB_DIR}/preflight.sh"
+bash "${LIB_DIR}/preflight.sh"
 
 install_wgcf() {
   local version=${WGCF_VERSION}

@@ -16,10 +16,10 @@ usage() {
 Docker installer for WARP Egress Gateway on a Linux Docker host.
 
 Usage:
-  sudo ./docker/setup.sh
+  sudo bash docker/setup.sh
 
 Unattended example:
-  sudo ./docker/setup.sh \
+  sudo bash docker/setup.sh \
     --uplink-ip 172.20.31.5 \
     --transit-ip 10.1.1.230/30 \
     --accept-tos

@@ -17,10 +17,10 @@ usage() {
 Interactive installer for WARP Egress Gateway.
 
 Usage:
-  sudo ./native/setup.sh
+  sudo bash native/setup.sh
 
 Unattended example:
-  sudo ./native/setup.sh \
+  sudo bash native/setup.sh \
     --uplink-ip 172.20.31.5 \
     --transit-ip 10.1.1.230/30 \
     --accept-tos
@@ -58,7 +58,7 @@ done
 if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'warp-egress-gateway'; then
   die "Docker edition is already running. Remove it before installing Native mode."
 fi
-[[ -x ${INSTALLER} ]] || die "Missing installer: ${INSTALLER}"
+[[ -r ${INSTALLER} ]] || die "Missing installer: ${INSTALLER}"
 command -v ip >/dev/null || die "The ip command is required."
 
 prompt() {
@@ -296,7 +296,7 @@ if [[ -n ${PROFILE} ]]; then
   install_args+=(--profile "${PROFILE}")
 fi
 
-"${INSTALLER}" "${install_args[@]}"
+bash "${INSTALLER}" "${install_args[@]}"
 
 cat <<DONE
 

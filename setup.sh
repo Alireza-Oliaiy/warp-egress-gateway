@@ -9,9 +9,9 @@ usage() {
 WARP Egress Gateway deployment selector
 
 Usage:
-  sudo ./setup.sh
-  sudo ./setup.sh --mode native [native options]
-  sudo ./setup.sh --mode docker [docker options]
+  sudo bash setup.sh
+  sudo bash setup.sh --mode native [native options]
+  sudo bash setup.sh --mode docker [docker options]
 
 Modes:
   native   Install directly on Ubuntu using systemd.
@@ -45,8 +45,8 @@ if [[ -z ${MODE} ]]; then
 fi
 
 case ${MODE} in
-  native) exec "${ROOT_DIR}/native/setup.sh" "$@" ;;
-  docker) exec "${ROOT_DIR}/docker/setup.sh" "$@" ;;
+  native) exec bash "${ROOT_DIR}/native/setup.sh" "$@" ;;
+  docker) exec bash "${ROOT_DIR}/docker/setup.sh" "$@" ;;
   -h|--help) usage ;;
   *) echo "Unknown mode: ${MODE}" >&2; usage; exit 2 ;;
 esac

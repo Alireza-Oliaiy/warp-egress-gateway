@@ -10,7 +10,9 @@ load_config
 printf '===== SERVICES =====\n'
 systemctl is-active "warp-gateway-firewall.service" "wg-quick@${WARP_IF}.service" "warp-gateway.service" || true
 printf '\n===== INTERFACES =====\n'
-ip -br address show "${UPLINK_IF}" "${TRANSIT_IF}" "${WARP_IF}" 2>/dev/null || true
+for interface in "${UPLINK_IF}" "${TRANSIT_IF}" "${WARP_IF}"; do
+  ip -br address show dev "${interface}" 2>/dev/null || true
+done
 printf '\n===== MAIN DEFAULT ROUTE =====\n'
 ip -4 route show default
 printf '\n===== POLICY RULES =====\n'
