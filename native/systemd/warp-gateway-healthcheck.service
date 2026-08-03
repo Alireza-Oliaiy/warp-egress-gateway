@@ -1,0 +1,7 @@
+[Unit]
+Description=Verify and recover the WARP egress path
+After=warp-gateway.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/warp-egress-gateway/healthcheck.sh

@@ -1,0 +1,5 @@
+.env
+generated/*
+!generated/.gitkeep
+state/*
+!state/.gitkeep

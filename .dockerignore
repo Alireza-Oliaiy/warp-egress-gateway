@@ -1,0 +1,14 @@
+.git
+.github
+release
+*.zip
+*.tar.gz
+native/config/warp-gateway.env
+docker/.env
+docker/generated
+docker/state
+wgcf-account.toml
+wgcf-profile.conf
+*.key
+*.secret
+*.private

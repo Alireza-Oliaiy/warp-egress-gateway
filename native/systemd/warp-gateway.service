@@ -1,0 +1,14 @@
+[Unit]
+Description=Policy routing from upstream firewall to Cloudflare WARP
+Wants=network-online.target
+After=network-online.target warp-gateway-firewall.service wg-quick@warp0.service
+Requires=warp-gateway-firewall.service wg-quick@warp0.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/warp-egress-gateway/route-up.sh
+ExecStop=/usr/local/lib/warp-egress-gateway/route-down.sh
+
+[Install]
+WantedBy=multi-user.target

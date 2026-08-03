@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+LIB_DIR=/usr/local/lib/warp-egress-gateway
+# shellcheck source=common.sh
+source "${LIB_DIR}/common.sh"
+require_root
+load_config
+
+cmd=${1:-status}
+case "${cmd}" in
+  status) exec "${LIB_DIR}/status.sh" ;;
+  health) exec "${LIB_DIR}/healthcheck.sh" ;;
+  diagnostics) shift; exec "${LIB_DIR}/diagnostics.sh" "$@" ;;
+  restart)
+    systemctl restart warp-gateway-firewall.service
+    systemctl restart "wg-quick@${WARP_IF}.service"
+    systemctl restart warp-gateway.service
+    exec "${LIB_DIR}/status.sh"
+    ;;
+  lockdown)
+    systemctl stop warp-gateway.service || true
+    systemctl stop "wg-quick@${WARP_IF}.service" || true
+    echo "WARP routing/tunnel stopped. Kill switch remains loaded."
+    ;;
+  start)
+    systemctl start warp-gateway-firewall.service
+    systemctl start "wg-quick@${WARP_IF}.service"
+    systemctl start warp-gateway.service
+    exec "${LIB_DIR}/status.sh"
+    ;;
+  logs)
+    exec journalctl -u warp-gateway-firewall.service -u "wg-quick@${WARP_IF}.service" -u warp-gateway.service -u warp-gateway-healthcheck.service -f
+    ;;
+  *)
+    echo "Usage: warp-gateway {status|health|diagnostics|restart|lockdown|start|logs}" >&2
+    exit 2
+    ;;
+esac

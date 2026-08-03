@@ -1,0 +1,227 @@
+# WARP Egress Gateway
+
+A reusable Ubuntu gateway that accepts routed traffic from a firewall/router and sends it through a Cloudflare WARP WireGuard egress path while keeping the host management default route unchanged.
+
+The repository provides **two deployment editions**:
+
+| Edition | Runtime | Best for |
+|---|---|---|
+| `native/` | Ubuntu + systemd | Dedicated gateway VM, smallest moving parts |
+| `docker/` | Docker Engine on Linux | Standardized container operations and portable deployment workflow |
+
+The two editions are mutually exclusive on the same host; install only one runtime mode at a time.
+
+Both editions ask for the same two primary values:
+
+1. The IPv4 address already configured on the main/uplink interface.
+2. The server-side transit IPv4/CIDR, normally a `/30` toward the firewall.
+
+The setup wizard detects interface names and the default gateway, derives the upstream peer on a `/30`, registers a free WARP profile, and configures policy routing, NAT, TCP MSS clamping, health checks, and a fail-closed kill switch.
+
+> This project is not affiliated with Cloudflare. `wgcf` is unofficial. Review Cloudflare terms before registering or operating an account.
+
+## Architecture
+
+```text
+Clients
+   |
+   v
+Firewall / Router
+   | selected traffic, normally SNATed to the firewall transit IP
+   v
+Ubuntu transit interface
+   |
+   +--> policy-routing table --> warp0 --> Cloudflare WARP --> Internet
+
+Ubuntu management traffic:
+main/uplink interface --> normal default gateway --> Internet
+```
+
+## Requirements
+
+- Ubuntu Server 24.04 LTS recommended
+- Root access
+- Two network interfaces recommended
+- Normal Internet and DNS on the main/uplink interface
+- Routed transit connection to the upstream firewall/router
+- UDP reachability to the WARP endpoint
+- Upstream policy that sends selected traffic to the Ubuntu transit IP
+
+Recommended starting resources:
+
+```text
+2 vCPU
+2 GB RAM
+20 GB disk
+```
+
+## Quick start
+
+```bash
+git clone https://github.com/Alireza-Oliaiy/warp-egress-gateway.git
+cd warp-egress-gateway
+sudo ./setup.sh
+```
+
+The selector asks for the deployment edition:
+
+```text
+1) Native Ubuntu/systemd
+2) Docker Engine on Linux
+```
+
+Then it asks for the main IP and the transit IP/CIDR.
+
+### Native unattended example
+
+```bash
+sudo ./setup.sh --mode native \
+  --uplink-ip 172.20.31.5 \
+  --transit-ip 10.1.1.230/30 \
+  --accept-tos \
+  --non-interactive
+```
+
+### Docker unattended example
+
+```bash
+sudo ./setup.sh --mode docker \
+  --uplink-ip 172.20.31.5 \
+  --transit-ip 10.1.1.230/30 \
+  --accept-tos \
+  --non-interactive
+```
+
+## Native edition
+
+The native edition installs WireGuard, nftables, systemd units, health checks, and management commands directly on Ubuntu.
+
+Advanced configuration-file installation:
+
+```bash
+cp native/config/warp-gateway.env.example native/config/warp-gateway.env
+editor native/config/warp-gateway.env
+sudo ./native/install.sh --config native/config/warp-gateway.env
+```
+
+Reuse an existing profile:
+
+```bash
+sudo ./native/install.sh \
+  --config native/config/warp-gateway.env \
+  --profile /etc/wireguard/warp0.conf
+```
+
+Operations:
+
+```bash
+sudo warp-gateway status
+sudo warp-gateway health
+sudo warp-gateway restart
+sudo warp-gateway lockdown
+sudo warp-gateway start
+sudo warp-gateway logs
+sudo warp-gateway diagnostics
+```
+
+## Docker edition
+
+The Docker edition runs the WARP registration, WireGuard lifecycle, health monitoring, policy routing, NAT, and recovery loop in a container.
+
+A small **mandatory host bootstrap** remains outside the container because transparent Layer-3 forwarding changes the Linux host network namespace. The bootstrap:
+
+- Detects the two host interfaces from the supplied IPs.
+- Optionally configures the transit IP with Netplan.
+- Enables IPv4 forwarding.
+- Loads a host-level fail-closed nftables guard.
+- Installs Docker Engine/Compose when missing.
+- Starts the container with host networking and only `NET_ADMIN`/`NET_RAW` capabilities.
+
+The Docker edition is for **Docker Engine on Linux**. It is not intended for Docker Desktop on Windows or macOS as a transparent routed gateway.
+
+Management:
+
+```bash
+cd docker
+docker compose ps
+docker compose logs -f gateway
+docker compose exec gateway /app/bin/status.sh
+```
+
+Stop the runtime while keeping the independent host kill switch:
+
+```bash
+cd docker
+docker compose down
+```
+
+Remove the Docker edition:
+
+```bash
+sudo ./docker/uninstall.sh
+```
+
+See [Docker deployment](docs/docker.md) for the security and networking model.
+
+## Safety properties
+
+- The normal host default route remains on the main/uplink interface.
+- Only packets arriving from the transit interface use the WARP routing table.
+- Only the derived/configured trusted source CIDR is accepted.
+- Transit IPv6 is dropped in this release.
+- A fail-closed nftables rule blocks transit traffic from leaving any interface other than `warp0`.
+- The Docker edition adds an independent host guard that remains loaded when the container stops.
+- WARP NAT and TCP MSS clamping are included.
+- Generated WARP identities and local configuration are excluded from Git.
+
+## Upstream firewall behavior
+
+The firewall/router should:
+
+1. Match selected traffic, such as Google services.
+2. Send it to the Ubuntu transit IP as the next hop.
+3. Preferably SNAT it to the firewall transit IP.
+4. Exclude traffic sourced by the Ubuntu main/uplink IP from this redirect.
+5. Permit TCP and UDP, including UDP/443 for QUIC.
+
+The Linux gateway does not decide which public destinations use WARP. That policy remains on the upstream firewall/router.
+
+## Verification
+
+From a test client routed through the firewall:
+
+```bash
+curl -4 https://www.cloudflare.com/cdn-cgi/trace
+curl -4 -I https://www.google.com/generate_204
+```
+
+Expected trace:
+
+```text
+warp=on
+ip=<WARP egress IP>
+```
+
+## Limitations
+
+- IPv4 transit only in this release.
+- Consumer WARP does not provide a project-managed dedicated egress IP or SLA.
+- Egress country is not selected by this project.
+- `wgcf` uses an unofficial registration flow that may change.
+- Keep an upstream fallback path for business-critical traffic.
+- Docker mode still requires a Linux host bootstrap; a container cannot safely become the host's transparent gateway without host network privileges.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Native deployment](docs/deployment.md)
+- [Docker deployment](docs/docker.md)
+- [FortiGate integration](docs/fortigate.md)
+- [Migration](docs/migration.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Security model](docs/security.md)
+- [Persian README](README.fa.md)
+
+## License
+
+MIT

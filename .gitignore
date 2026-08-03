@@ -1,0 +1,27 @@
+# Secrets and generated WARP identities
+wgcf-account.toml
+wgcf-profile.conf
+*.private
+*.key
+*.secret
+
+# Native local configuration
+native/config/warp-gateway.env
+
+# Docker local configuration and state
+docker/.env
+docker/generated/*
+!docker/generated/.gitkeep
+docker/state/*
+!docker/state/.gitkeep
+
+# Build artifacts
+release/
+*.tar.gz
+*.zip
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

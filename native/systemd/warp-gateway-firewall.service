@@ -1,0 +1,17 @@
+[Unit]
+Description=WARP Egress Gateway persistent kill switch and NAT
+Wants=network-online.target
+After=network-online.target
+Before=warp-gateway.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/warp-egress-gateway/firewall-apply.sh
+ExecReload=/usr/local/lib/warp-egress-gateway/firewall-apply.sh
+# Deliberately do not remove the firewall on stop. This prevents direct-uplink
+# leakage when the tunnel or routing service is stopped or fails.
+ExecStop=/bin/true
+
+[Install]
+WantedBy=multi-user.target
