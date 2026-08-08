@@ -43,7 +43,7 @@ die() { printf '%s\n' "$*" >&2; exit 1; }
 RUNNER
 awk '
   /^validate_checked_out_version\(\)/ { capture=1 }
-  /^resolve_requested_ref$/ { capture=0 }
+  /^resolve_requested_ref / { capture=0 }
   capture { print }
 ' "${REMOTE_UPGRADE}" >>"${unit_runner}"
 cat >>"${unit_runner}" <<'RUNNER'

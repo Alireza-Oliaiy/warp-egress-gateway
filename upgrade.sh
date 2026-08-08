@@ -228,8 +228,8 @@ docker_workdir() {
 }
 
 wait_docker_healthy() {
-  local state i
-  for i in $(seq 1 45); do
+  local state
+  for _ in $(seq 1 45); do
     state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' warp-egress-gateway 2>/dev/null || true)
     [[ ${state} == healthy ]] && return 0
     [[ ${state} == exited || ${state} == dead ]] && return 1

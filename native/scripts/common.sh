@@ -4,8 +4,12 @@ set -Eeuo pipefail
 PROJECT_NAME="warp-egress-gateway"
 CONFIG_DIR="/etc/${PROJECT_NAME}"
 CONFIG_FILE="${CONFIG_DIR}/warp-gateway.env"
+# These values are consumed by the scripts that source this library.
+# shellcheck disable=SC2034
 STATE_DIR="/var/lib/${PROJECT_NAME}"
+# shellcheck disable=SC2034
 LIB_DIR="/usr/local/lib/${PROJECT_NAME}"
+# shellcheck disable=SC2034
 NFT_TABLE="warp_gateway"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }

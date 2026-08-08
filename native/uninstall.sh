@@ -20,8 +20,12 @@ if [[ -r ${CONFIG_FILE} ]]; then
   source "${CONFIG_FILE}"
 else
   WARP_IF=warp0
+  # These fallback values are read by sourced routing helpers.
+  # shellcheck disable=SC2034
   ROUTING_TABLE_ID=100
+  # shellcheck disable=SC2034
   SOURCE_RULE_PRIORITY=100
+  # shellcheck disable=SC2034
   INGRESS_RULE_PRIORITY=110
 fi
 

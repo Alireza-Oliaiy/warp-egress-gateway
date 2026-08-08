@@ -94,7 +94,7 @@ validate_checked_out_version() {
   fi
 }
 
-resolve_requested_ref
+resolve_requested_ref "${REF}"
 echo "[upgrade-bootstrap] Fetching ${REPOSITORY_URL} ref ${REF} (${RESOLVED_OID})."
 git clone --quiet --no-checkout --depth 1 "${REPOSITORY_URL}" "${workdir}/repo"
 git -C "${workdir}/repo" fetch --quiet --depth 1 origin "${RESOLVED_OID}"
