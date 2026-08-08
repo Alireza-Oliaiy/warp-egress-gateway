@@ -19,6 +19,12 @@ required=(
   native/install.sh
   native/config/warp-gateway.env.example
   native/systemd/warp-gateway-firewall.service
+  native/scripts/monitor.sh
+  native/systemd/warp-monitor.service
+  native/systemd/warp-monitor.timer
+  docker/bin/monitor.sh
+  shared/journald/10-warp-egress-gateway-retention.conf
+  docs/monitoring.md
   docker/setup.sh
   docker/Dockerfile
   docker/compose.yaml

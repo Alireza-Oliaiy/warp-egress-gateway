@@ -8,7 +8,7 @@ require_root
 load_config
 
 printf '===== SERVICES =====\n'
-systemctl is-active "warp-gateway-firewall.service" "wg-quick@${WARP_IF}.service" "warp-gateway.service" || true
+systemctl is-active "warp-gateway-firewall.service" "wg-quick@${WARP_IF}.service" "warp-gateway.service" "warp-monitor.timer" || true
 printf '\n===== INTERFACES =====\n'
 for interface in "${UPLINK_IF}" "${TRANSIT_IF}" "${WARP_IF}"; do
   ip -br address show dev "${interface}" 2>/dev/null || true
@@ -31,3 +31,6 @@ if [[ -n ${warp_ip} ]]; then
     "${HEALTHCHECK_URL:-https://www.cloudflare.com/cdn-cgi/trace}" \
     | grep -E '^(ip|loc|colo|warp)=' || true
 fi
+
+printf '\n===== LAST MONITOR SAMPLE =====\n'
+journalctl -t warp-monitor -n 1 --no-pager -o short-iso || true

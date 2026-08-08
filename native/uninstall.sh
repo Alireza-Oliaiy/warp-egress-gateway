@@ -26,6 +26,7 @@ else
 fi
 
 systemctl disable --now warp-gateway-healthcheck.timer 2>/dev/null || true
+systemctl disable --now warp-monitor.timer 2>/dev/null || true
 systemctl stop warp-gateway.service 2>/dev/null || true
 systemctl disable warp-gateway.service 2>/dev/null || true
 systemctl disable --now "wg-quick@${WARP_IF}.service" 2>/dev/null || true
@@ -38,9 +39,12 @@ systemctl disable warp-gateway-firewall.service 2>/dev/null || true
 rm -f /etc/systemd/system/warp-gateway.service \
       /etc/systemd/system/warp-gateway-firewall.service \
       /etc/systemd/system/warp-gateway-healthcheck.service \
-      /etc/systemd/system/warp-gateway-healthcheck.timer
+      /etc/systemd/system/warp-gateway-healthcheck.timer \
+      /etc/systemd/system/warp-monitor.service \
+      /etc/systemd/system/warp-monitor.timer
 rm -rf "/etc/systemd/system/wg-quick@${WARP_IF}.service.d"
 rm -f /etc/sysctl.d/99-warp-egress-gateway.conf
+rm -f /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
 rm -f /etc/iproute2/rt_tables.d/warp-egress-gateway.conf
 rm -f /usr/local/sbin/warp-gateway
 rm -rf /usr/local/lib/warp-egress-gateway
@@ -53,5 +57,6 @@ else
 fi
 
 systemctl daemon-reload
+systemctl restart systemd-journald 2>/dev/null || true
 sysctl --system >/dev/null || true
 echo "Uninstall complete."

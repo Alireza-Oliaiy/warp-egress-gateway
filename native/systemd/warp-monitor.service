@@ -1,0 +1,8 @@
+[Unit]
+Description=Passive WARP gateway health monitor
+Wants=network-online.target
+After=network-online.target warp-gateway.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/warp-egress-gateway/monitor.sh

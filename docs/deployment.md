@@ -52,6 +52,14 @@ Confirm:
 - WARP table has `default dev warp0`.
 - `warp=on` appears in the trace.
 - Firewall counters exist.
+- `warp-monitor.timer` is active and the latest `warp-monitor` record shows `STATUS=OK`.
+
+Review the monitor:
+
+```bash
+sudo warp-gateway history
+sudo warp-gateway failures
+```
 
 ## 5. Test one upstream source
 

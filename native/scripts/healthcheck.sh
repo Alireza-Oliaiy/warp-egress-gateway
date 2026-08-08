@@ -9,7 +9,7 @@ load_config
 
 TIMEOUT=${HEALTHCHECK_TIMEOUT:-15}
 URL=${HEALTHCHECK_URL:-https://www.cloudflare.com/cdn-cgi/trace}
-AUTO_RECOVER=${AUTO_RECOVER:-true}
+AUTO_RECOVER=${AUTO_RECOVER:-false}
 
 check_warp() {
   local warp_ip output
@@ -40,4 +40,7 @@ if [[ ${AUTO_RECOVER} == "true" ]]; then
   fi
 fi
 
-die "WARP health check failed after recovery attempt."
+if [[ ${AUTO_RECOVER} == "true" ]]; then
+  die "WARP health check failed after recovery attempt."
+fi
+die "WARP health check failed; AUTO_RECOVER is disabled."

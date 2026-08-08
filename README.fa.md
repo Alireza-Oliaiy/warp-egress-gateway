@@ -2,7 +2,7 @@
 
 این پروژه یک Ubuntu را به **Next-Hop شفاف** تبدیل می‌کند. فایروال یا روتر، ترافیک انتخاب‌شده را به کارت Transit سرور می‌دهد و سرور آن را از `warp0` و Cloudflare WARP خارج می‌کند؛ در عین حال Default Route مدیریت Ubuntu روی لینک اصلی باقی می‌ماند.
 
-این Repository از نسخه `0.3.1` دو بخش مستقل دارد:
+این Repository دو بخش مستقل Native و Docker دارد و از نسخه `0.3.2` مانیتورینگ و نگهداری لاگ هفت‌روزه را هم به‌صورت پیش‌فرض نصب می‌کند:
 
 | بخش | روش اجرا | کاربرد مناسب |
 |---|---|---|
@@ -16,7 +16,7 @@
 1. IP کارت اصلی که اینترنت و Default Route دارد.
 2. IP/CIDR کارت Transit سمت فایروال، معمولاً `/30`.
 
-اسکریپت نام Interfaceها، Default Gateway، IP طرف مقابل `/30`، WARP، NAT، Policy Routing، MSS Clamping، Health Check و Kill Switch را خودش آماده می‌کند.
+اسکریپت نام Interfaceها، Default Gateway، IP طرف مقابل `/30`، WARP، NAT، Policy Routing، MSS Clamping، Health Check، نگهداری لاگ هفت‌روزه، مانیتور یک‌دقیقه‌ای و Kill Switch را خودش آماده می‌کند.
 
 > این پروژه وابسته به Cloudflare نیست. ابزار `wgcf` غیررسمی است. قبل از ثبت حساب، شرایط Cloudflare را بررسی کن.
 
@@ -30,7 +30,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.3.1: harden Windows publishing"
+  -CommitMessage "Release v0.3.2: add seven-day observability and passive WARP monitoring"
 ```
 
 Git Credential Manager ممکن است مرورگر را برای ورود به GitHub باز کند. کلید یا پروفایل WARP داخل Repository کپی نمی‌شود.
@@ -97,14 +97,36 @@ sudo bash native/install.sh \
 ```bash
 sudo warp-gateway status
 sudo warp-gateway health
+sudo warp-gateway monitor
+sudo warp-gateway history
+sudo warp-gateway failures
 sudo warp-gateway restart
 sudo warp-gateway lockdown
 sudo warp-gateway logs
 ```
 
+
+## لاگ و مانیتورینگ هفت‌روزه
+
+هر دو روش نصب، `systemd-journald` را Persistent می‌کنند و لاگ‌ها را تا ۷ روز با سقف ۱ گیگابایت نگه می‌دارند. در حالت Native، `warp-monitor.timer` هر ۶۰ ثانیه وضعیت WireGuard، سن Handshake، اینترنت مستقیم، WARP، لینک بالادست، Policy Route و nftables را ثبت می‌کند.
+
+مشاهده کل تاریخچه:
+
+```bash
+sudo warp-gateway history
+```
+
+فقط خرابی‌ها:
+
+```bash
+sudo warp-gateway failures
+```
+
+در نسخه `0.3.2` مقدار `AUTO_RECOVER` به‌صورت پیش‌فرض `false` است تا قبل از Restart خودکار، شواهد قطعی برای Root Cause باقی بماند. جزئیات بیشتر در [راهنمای مانیتورینگ](docs/monitoring.md) آمده است.
+
 ## بخش Docker
 
-در این روش ثبت WARP، ساخت و نگهداری `warp0`، Health Check، Recovery، NAT و Policy Routing داخل Container اجرا می‌شود.
+در این روش ثبت WARP، ساخت و نگهداری `warp0`، Health Check، مانیتور یک‌دقیقه‌ای، NAT، Policy Routing و در صورت فعال‌سازی، Recovery داخل Container اجرا می‌شود.
 
 بااین‌حال یک Bootstrap کوچک و اجباری روی Host باقی می‌ماند، چون Transparent Routing باید Network Namespace و nftables خود Linux Host را کنترل کند. این Bootstrap:
 

@@ -268,6 +268,14 @@ apt-get install -y nftables wireguard-tools docker.io docker-compose-v2 ca-certi
 systemctl enable --now docker
 modprobe wireguard || true
 
+log "Configuring persistent seven-day system journal retention."
+install -d -m 755 /etc/systemd/journald.conf.d
+mkdir -p /var/log/journal
+install -m 644 "${ROOT_DIR}/../shared/journald/10-warp-egress-gateway-retention.conf" \
+  /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
+systemd-tmpfiles --create --prefix /var/log/journal
+systemctl restart systemd-journald
+
 if [[ ${MANAGE_TRANSIT_ADDRESS} == "true" ]]; then
   log "Configuring ${TRANSIT_CIDR} persistently on ${TRANSIT_IF}."
   install -d -m 700 /etc/netplan
@@ -317,7 +325,11 @@ EXISTING_WARP_PROFILE=""
 HEALTHCHECK_URL="https://www.cloudflare.com/cdn-cgi/trace"
 HEALTHCHECK_INTERVAL="60"
 HEALTHCHECK_TIMEOUT="15"
-AUTO_RECOVER="true"
+AUTO_RECOVER="false"
+MONITOR_INTERVAL="60"
+MONITOR_HANDSHAKE_WARN_SEC="120"
+MONITOR_CURL_TIMEOUT="10"
+UPSTREAM_MONITOR_IP="auto"
 ENABLE_IPV6_TRANSIT="false"
 CONFIG
 chmod 600 "${ROOT_DIR}/generated/warp-gateway.env"

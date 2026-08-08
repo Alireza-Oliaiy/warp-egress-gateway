@@ -83,6 +83,14 @@ NETPLAN
   netplan apply
 fi
 
+log "Configuring persistent seven-day system journal retention."
+install -d -m 755 /etc/systemd/journald.conf.d
+mkdir -p /var/log/journal
+install -m 644 "${REPO_DIR}/../shared/journald/10-warp-egress-gateway-retention.conf" \
+  /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
+systemd-tmpfiles --create --prefix /var/log/journal
+systemctl restart systemd-journald
+
 log "Installing project scripts."
 install -d -m 755 "${LIB_DIR}"
 install -m 755 "${REPO_DIR}"/scripts/*.sh "${LIB_DIR}/"
@@ -183,6 +191,10 @@ install -m 644 "${REPO_DIR}/systemd/warp-gateway-healthcheck.service" /etc/syste
 sed "s/OnUnitActiveSec=60s/OnUnitActiveSec=${HEALTHCHECK_INTERVAL:-60}s/" \
   "${REPO_DIR}/systemd/warp-gateway-healthcheck.timer" \
   > /etc/systemd/system/warp-gateway-healthcheck.timer
+install -m 644 "${REPO_DIR}/systemd/warp-monitor.service" /etc/systemd/system/
+sed "s/OnUnitActiveSec=60s/OnUnitActiveSec=${MONITOR_INTERVAL:-60}s/" \
+  "${REPO_DIR}/systemd/warp-monitor.timer" \
+  > /etc/systemd/system/warp-monitor.timer
 install -d -m 755 "/etc/systemd/system/wg-quick@${WARP_IF}.service.d"
 install -m 644 "${REPO_DIR}/systemd/warp-gateway.conf" \
   "/etc/systemd/system/wg-quick@${WARP_IF}.service.d/10-network-online.conf"
@@ -192,12 +204,15 @@ systemctl enable warp-gateway-firewall.service
 systemctl enable "wg-quick@${WARP_IF}.service"
 systemctl enable warp-gateway.service
 systemctl enable warp-gateway-healthcheck.timer
+systemctl enable warp-monitor.timer
 
 log "Starting firewall first, then WARP and policy routing."
 systemctl restart warp-gateway-firewall.service
 systemctl restart "wg-quick@${WARP_IF}.service"
 systemctl restart warp-gateway.service
 systemctl restart warp-gateway-healthcheck.timer
+systemctl restart warp-monitor.timer
+systemctl start warp-monitor.service
 
 log "Installation complete."
 /usr/local/sbin/warp-gateway status

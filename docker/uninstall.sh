@@ -13,8 +13,10 @@ rm -f /etc/systemd/system/warp-egress-docker-guard.service
 rm -f /usr/local/sbin/warp-egress-docker-guard-apply /usr/local/sbin/warp-egress-docker-guard-remove
 rm -rf /etc/warp-egress-gateway-docker
 rm -f /etc/sysctl.d/99-warp-egress-docker.conf
+rm -f /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
 rm -f /etc/netplan/60-warp-egress-docker-transit.yaml
 systemctl daemon-reload
+systemctl restart systemd-journald 2>/dev/null || true
 sysctl --system >/dev/null || true
 rm -rf "${ROOT_DIR}/generated"
 mkdir -p "${ROOT_DIR}/generated"

@@ -56,6 +56,25 @@ sudo journalctl -u warp-gateway-healthcheck.service -n 100 --no-pager
 
 The configured trace URL must return a line exactly equal to `warp=on`.
 
+
+## Review an intermittent outage from the last week
+
+Native deployment:
+
+```bash
+sudo warp-gateway history
+sudo warp-gateway failures
+journalctl -t warp-monitor --since "7 days ago" --no-pager -o short-iso
+```
+
+The structured record separates direct Internet, WARP, handshake freshness, upstream transit, policy routing, and nftables state. System and kernel logs are retained persistently for the same seven-day window.
+
+Docker deployment:
+
+```bash
+journalctl CONTAINER_TAG=warp-egress-gateway --since "7 days ago" --no-pager
+```
+
 ## Collect diagnostics
 
 ```bash

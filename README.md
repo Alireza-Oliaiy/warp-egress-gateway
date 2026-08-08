@@ -16,7 +16,7 @@ Both editions ask for the same two primary values:
 1. The IPv4 address already configured on the main/uplink interface.
 2. The server-side transit IPv4/CIDR, normally a `/30` toward the firewall.
 
-The setup wizard detects interface names and the default gateway, derives the upstream peer on a `/30`, registers a free WARP profile, and configures policy routing, NAT, TCP MSS clamping, health checks, and a fail-closed kill switch.
+The setup wizard detects interface names and the default gateway, derives the upstream peer on a `/30`, registers a free WARP profile, and configures policy routing, NAT, TCP MSS clamping, health checks, seven-day persistent logs, passive one-minute path monitoring, and a fail-closed kill switch.
 
 > This project is not affiliated with Cloudflare. `wgcf` is unofficial. Review Cloudflare terms before registering or operating an account.
 
@@ -65,7 +65,7 @@ Run in PowerShell from the extracted project directory:
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.3.1: harden Windows publishing"
+  -CommitMessage "Release v0.3.2: add seven-day observability and passive WARP monitoring"
 ```
 
 ## Quick start
@@ -107,7 +107,7 @@ sudo bash setup.sh --mode docker \
 
 ## Native edition
 
-The native edition installs WireGuard, nftables, systemd units, health checks, and management commands directly on Ubuntu.
+The native edition installs WireGuard, nftables, systemd units, health checks, seven-day persistent journald retention, a passive one-minute monitor, and management commands directly on Ubuntu.
 
 Advanced configuration-file installation:
 
@@ -130,6 +130,9 @@ Operations:
 ```bash
 sudo warp-gateway status
 sudo warp-gateway health
+sudo warp-gateway monitor
+sudo warp-gateway history
+sudo warp-gateway failures
 sudo warp-gateway restart
 sudo warp-gateway lockdown
 sudo warp-gateway start
@@ -139,7 +142,7 @@ sudo warp-gateway diagnostics
 
 ## Docker edition
 
-The Docker edition runs the WARP registration, WireGuard lifecycle, health monitoring, policy routing, NAT, and recovery loop in a container.
+The Docker edition runs WARP registration, WireGuard lifecycle, passive one-minute health monitoring, policy routing, NAT, and optional recovery in a container. Container output is sent to journald so the same seven-day host retention applies.
 
 A small **mandatory host bootstrap** remains outside the container because transparent Layer-3 forwarding changes the Linux host network namespace. The bootstrap:
 
@@ -185,6 +188,8 @@ See [Docker deployment](docs/docker.md) for the security and networking model.
 - A fail-closed nftables rule blocks transit traffic from leaving any interface other than `warp0`.
 - The Docker edition adds an independent host guard that remains loaded when the container stops.
 - WARP NAT and TCP MSS clamping are included.
+- System, kernel, network, and gateway logs are retained persistently for seven days with a 1 GB cap.
+- Passive monitor records are written every minute; `AUTO_RECOVER` defaults to `false` so incident evidence is preserved.
 - Generated WARP identities and local configuration are excluded from Git.
 
 ## Upstream firewall behavior
@@ -232,6 +237,7 @@ ip=<WARP egress IP>
 - [FortiGate integration](docs/fortigate.md)
 - [Migration](docs/migration.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Seven-day monitoring and logs](docs/monitoring.md)
 - [Security model](docs/security.md)
 - [Persian README](README.fa.md)
 

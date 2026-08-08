@@ -75,12 +75,13 @@ start_tunnel() {
 start_tunnel
 log "Docker WARP gateway is active."
 
-interval=${HEALTHCHECK_INTERVAL:-60}
+interval=${MONITOR_INTERVAL:-60}
 while true; do
   sleep "${interval}" & wait $!
-  if ! /app/bin/healthcheck.sh; then
-    log "Health check failed; kill switch remains active. Attempting recovery."
-    if [[ ${AUTO_RECOVER:-true} == true ]]; then
+  if ! /app/bin/monitor.sh; then
+    log "Passive monitor reported failure; kill switch remains active."
+    if [[ ${AUTO_RECOVER:-false} == true ]]; then
+      log "AUTO_RECOVER=true; attempting recovery."
       start_tunnel || true
     fi
   fi

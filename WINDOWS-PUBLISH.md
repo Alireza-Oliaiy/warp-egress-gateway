@@ -8,7 +8,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.3.1: harden Windows publishing"
+  -CommitMessage "Release v0.3.2: add seven-day observability and passive WARP monitoring"
 ```
 
 The script performs a fresh clone of the remote repository in `%TEMP%`, copies the release files, enforces LF line endings, records executable modes for Linux scripts, commits, and pushes.

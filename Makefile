@@ -7,6 +7,7 @@ test: syntax shellcheck compose
 syntax:
 	@bash tests/syntax.sh
 	@bash tests/security-order.sh
+	@bash tests/monitoring.sh
 
 shellcheck:
 	@if command -v shellcheck >/dev/null; then \

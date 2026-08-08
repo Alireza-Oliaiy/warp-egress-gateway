@@ -19,6 +19,7 @@ A transparent gateway must affect the Linux host routing and forwarding path bef
 - Persists the transit address when necessary.
 - Enables IPv4 forwarding and loose reverse-path filtering.
 - Loads `warp_docker_guard`, an nftables table that drops transit packets unless their output interface is `warp0`.
+- Configures persistent seven-day system journal retention.
 - Starts Docker and the Compose project.
 
 The host guard is independent of the container. A stopped, crashed, or unhealthy container cannot make transit traffic fall back to the normal uplink.
@@ -53,7 +54,10 @@ docker compose ps
 docker compose logs -f gateway
 docker compose exec gateway /app/bin/status.sh
 docker inspect warp-egress-gateway --format '{{.State.Health.Status}}'
+journalctl CONTAINER_TAG=warp-egress-gateway --since "7 days ago" --no-pager
 ```
+
+The container writes one structured passive monitor sample per minute. `AUTO_RECOVER=false` is the default in version 0.3.2 so incident evidence is retained before any optional tunnel restart.
 
 ## Stop and remove
 

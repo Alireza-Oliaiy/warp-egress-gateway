@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         WGCF_VERSION: ${WGCF_VERSION:-2.2.31}
-    image: warp-egress-gateway:${IMAGE_TAG:-0.3.0}
+    image: warp-egress-gateway:${IMAGE_TAG:-0.3.2}
     container_name: warp-egress-gateway
     network_mode: host
     cap_add:
@@ -22,5 +22,9 @@ services:
       - ./state:/var/lib/warp-egress-gateway
       - /lib/modules:/lib/modules:ro
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: warp-egress-gateway
     init: true
     stop_grace_period: 20s

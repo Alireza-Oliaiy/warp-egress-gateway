@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryUrl = "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git",
-    [string]$CommitMessage = "Release v0.3.1: Windows publishing and status fixes",
+    [string]$CommitMessage = "Release v0.3.2: add seven-day observability and passive WARP monitoring",
     [string]$Branch = "main",
     [string]$WorkDirectory = (Join-Path $env:TEMP "warp-egress-gateway-publish")
 )
@@ -80,6 +80,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Syntax test failed." }
         & bash tests/security-order.sh
         if ($LASTEXITCODE -ne 0) { throw "Security test failed." }
+        & bash tests/monitoring.sh
+        if ($LASTEXITCODE -ne 0) { throw "Monitoring test failed." }
     }
     else {
         Write-Warning "bash was not found in PATH; GitHub Actions will run the Linux tests after push."

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 - 2026-08-08
+
+- Added persistent systemd journal retention for seven days with compression and bounded disk usage.
+- Added passive one-minute WARP path monitoring for Native deployments with structured `warp-monitor` journal records.
+- Added equivalent one-minute structured monitoring to the Docker runtime and routed Docker logs to journald.
+- Monitoring records WireGuard state, handshake age, direct Internet, WARP Internet, upstream transit reachability, policy routing, and nftables state.
+- Added `warp-gateway history` and `warp-gateway failures` commands for seven-day incident review.
+- Changed new-install `AUTO_RECOVER` default to `false` so failures are preserved for root-cause analysis before optional automated recovery.
+- Extended diagnostics, status output, CI/static tests, and documentation for the new observability layer.
+
 ## 0.3.1 - 2026-08-03
 
 - Fixed native and Docker status output so all three interfaces are displayed.
