@@ -21,8 +21,8 @@ Usage:
 
 Unattended example:
   sudo bash native/setup.sh \
-    --uplink-ip 172.20.31.5 \
-    --transit-ip 10.1.1.230/30 \
+    --uplink-ip 203.0.113.5 \
+    --transit-ip 198.51.100.2/30 \
     --accept-tos
 
 Options:
@@ -200,7 +200,7 @@ UPLINK_IF=$(interface_for_ipv4 "${UPLINK_IP}")
   || die "${UPLINK_IP} is on ${UPLINK_IF}, but the default route uses ${DEFAULT_UPLINK_IF}."
 
 if [[ -z ${TRANSIT_CIDR} ]]; then
-  prompt TRANSIT_CIDR "Server transit IPv4/CIDR, for example 10.1.1.230/30"
+  prompt TRANSIT_CIDR "Server transit IPv4/CIDR, for example 198.51.100.2/30"
 fi
 if [[ ${TRANSIT_CIDR} != */* ]]; then
   log "No prefix supplied for the transit IP; assuming /30."

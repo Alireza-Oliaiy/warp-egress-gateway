@@ -2,6 +2,10 @@
 
 ## 0.4.0 - 2026-08-08
 
+- Sanitized public examples to use documentation-only network ranges and removed
+  internal planning artifacts.
+- Minimized release archives by excluding contributor, CI, internal planning,
+  and generated runtime material while retaining runtime upgrade checks.
 - Added managed upgrade, rollback, version reporting, release lifecycle documentation, and production-oriented operator workflows.
 - Hardened Windows publishing so tracked files intentionally removed by a new release are staged before line-ending renormalization.
 - Hardened release packaging to preserve tracked Docker placeholder directories while still excluding generated runtime state and secrets.

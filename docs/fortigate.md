@@ -5,8 +5,8 @@ This project treats FortiGate as the policy engine and Ubuntu as a transparent n
 ## Recommended transit design
 
 ```text
-FortiGate: 10.1.1.229/30
-Ubuntu:    10.1.1.230/30
+FortiGate: 198.51.100.1/30
+Ubuntu:    198.51.100.2/30
 ```
 
 ## FortiGate responsibilities
@@ -23,7 +23,7 @@ Ubuntu:    10.1.1.230/30
 With FortiGate SNAT enabled:
 
 ```bash
-TRUSTED_SOURCE_CIDR="10.1.1.229/32"
+TRUSTED_SOURCE_CIDR="198.51.100.1/32"
 ```
 
 Without FortiGate SNAT, configure a CIDR covering actual client sources and ensure the Ubuntu return path reaches those client networks through FortiGate. The SNAT design is recommended for the initial deployment.

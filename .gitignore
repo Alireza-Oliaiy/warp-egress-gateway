@@ -17,6 +17,7 @@ docker/state/*
 
 # Build artifacts
 release/
+release-final/
 *.tar.gz
 *.zip
 

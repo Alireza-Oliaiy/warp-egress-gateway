@@ -21,12 +21,24 @@ grep -q 'diff --cached --check' "${ROOT}/tests/package.sh" || {
 
 tar_list="${OUT}/tar-list.txt"
 tar -tzf "${OUT}/${NAME}.tar.gz" >"${tar_list}"
-grep -qx "${NAME}/docker/generated/.gitkeep" "${tar_list}" || {
-  echo "Packaged TAR must preserve docker/generated/.gitkeep." >&2; exit 1;
-}
-grep -qx "${NAME}/docker/state/.gitkeep" "${tar_list}" || {
-  echo "Packaged TAR must preserve docker/state/.gitkeep." >&2; exit 1;
-}
+for required in \
+  VERSION LICENSE README.md README.fa.md CHANGELOG.md setup.sh upgrade.sh rollback.sh \
+  native/install.sh docker/setup.sh shared/upgrade/remote-upgrade.sh \
+  docs/upgrade.md docs/security.md tests/syntax.sh \
+  docker/generated/.gitkeep docker/state/.gitkeep; do
+  grep -qx "${NAME}/${required}" "${tar_list}" || {
+    echo "Packaged TAR is missing required file: ${required}" >&2; exit 1;
+  }
+done
+if grep -Eq "^${NAME}/(\\.git/|\\.github/|docs/superpowers/|release[^/]*/|CONTRIBUTING\\.md$|docker/\\.env$|wgcf-account\\.toml$|wgcf-profile\\.conf$)" "${tar_list}"; then
+  echo "Packaged TAR contains forbidden development or runtime-private content." >&2
+  exit 1
+fi
+for executable in setup.sh upgrade.sh rollback.sh tests/run-all.sh; do
+  tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rwxr-xr-x .*${NAME}/${executable}$" >/dev/null || {
+    echo "Packaged TAR executable mode is missing: ${executable}" >&2; exit 1;
+  }
+done
 
 "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${NAME}" <<'PY'
 from pathlib import Path
@@ -35,13 +47,29 @@ import zipfile
 
 archive_path, name = map(Path, sys.argv[1:])
 required = {
+    f'{name}/VERSION', f'{name}/LICENSE', f'{name}/README.md',
+    f'{name}/README.fa.md', f'{name}/CHANGELOG.md', f'{name}/setup.sh',
+    f'{name}/upgrade.sh', f'{name}/rollback.sh', f'{name}/native/install.sh',
+    f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
+    f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
+    f'{name}/tests/syntax.sh',
     f'{name}/docker/generated/.gitkeep',
     f'{name}/docker/state/.gitkeep',
 }
 with zipfile.ZipFile(archive_path) as archive:
-    missing = required.difference(archive.namelist())
+    entries = set(archive.namelist())
+    missing = required.difference(entries)
+    forbidden_roots = ('.git/', '.github/', 'docs/superpowers/', 'release')
+    forbidden_files = {
+        'CONTRIBUTING.md', 'docker/.env',
+        'wgcf-account.toml', 'wgcf-profile.conf',
+    }
+    forbidden = [entry for entry in entries if entry.removeprefix(f'{name}/') in forbidden_files
+                 or entry.removeprefix(f'{name}/').startswith(forbidden_roots)]
 if missing:
     raise SystemExit(f'Packaged ZIP is missing: {", ".join(sorted(missing))}')
+if forbidden:
+    raise SystemExit('Packaged ZIP contains forbidden content: ' + ', '.join(sorted(forbidden)))
 PY
 
 "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" <<'PY'

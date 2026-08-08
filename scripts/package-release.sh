@@ -23,11 +23,19 @@ mkdir -p "${STAGE}/${NAME}"
 
 ( cd "${ROOT}" && tar \
   --exclude='./.git' \
-  --exclude='./release' \
+  --exclude='./.github/*' \
+  --exclude='./docs/superpowers/*' \
+  --exclude='./CONTRIBUTING.md' \
+  --exclude='./release*' \
   --exclude='./docker/state/*' \
   --exclude='./docker/generated/*' \
   --exclude='./docker/.env' \
   -cf - . ) | ( cd "${STAGE}/${NAME}" && tar -xf - )
+
+# tar preserves empty directory headers even when their contents are excluded.
+# Remove development-only directories from the staging tree so neither archive
+# advertises them as part of the end-user product.
+rm -rf "${STAGE}/${NAME}/.github" "${STAGE}/${NAME}/docs/superpowers"
 
 # Runtime state/generated content is intentionally excluded, but the tracked
 # placeholders must remain in release archives so a release payload can replace

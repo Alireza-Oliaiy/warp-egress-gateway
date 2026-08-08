@@ -9,9 +9,9 @@ This procedure upgrades a manually configured host to the repository-managed lay
 Example:
 
 ```text
-ens33 = 172.20.31.5/24, default gateway 172.20.31.254
-ens35 = 10.1.1.230/30
-FortiGate source = 10.1.1.229
+ens33 = 203.0.113.5/24, default gateway 203.0.113.1
+ens35 = 198.51.100.2/30
+Upstream firewall source = 198.51.100.1
 warp0 = existing WARP interface
 ```
 

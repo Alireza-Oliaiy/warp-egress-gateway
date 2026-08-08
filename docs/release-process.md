@@ -1,5 +1,16 @@
 # Release process
 
+## Source repository and release artifacts
+
+The public source repository intentionally includes code, tests, GitHub Actions,
+contribution guidance, and publisher/release tooling. Official ZIP and TAR.GZ
+artifacts exclude CI metadata, contributor material, internal planning notes,
+and generated/runtime state. The archives retain `tests/` because `upgrade.sh` runs a defined set of
+source validation scripts before it changes a gateway; the test suite's
+supporting release metadata and documentation also remain for that operational
+safety gate. This transparency is intentional: the full source and tests are
+part of the upgrade safety model rather than hidden security material.
+
 The project follows Semantic Versioning while it is in the `0.x` series:
 
 - Patch (`0.4.1`): backward-compatible bug/security/documentation fix.

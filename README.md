@@ -115,8 +115,8 @@ Docker installations use the same universal upgrader with `--mode docker`. Every
 
 ```bash
 sudo bash setup.sh --mode native \
-  --uplink-ip 172.20.31.5 \
-  --transit-ip 10.1.1.230/30 \
+  --uplink-ip 203.0.113.5 \
+  --transit-ip 198.51.100.2/30 \
   --accept-tos \
   --non-interactive
 ```
@@ -125,8 +125,8 @@ sudo bash setup.sh --mode native \
 
 ```bash
 sudo bash setup.sh --mode docker \
-  --uplink-ip 172.20.31.5 \
-  --transit-ip 10.1.1.230/30 \
+  --uplink-ip 203.0.113.5 \
+  --transit-ip 198.51.100.2/30 \
   --accept-tos \
   --non-interactive
 ```
