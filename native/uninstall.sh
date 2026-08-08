@@ -46,7 +46,8 @@ rm -rf "/etc/systemd/system/wg-quick@${WARP_IF}.service.d"
 rm -f /etc/sysctl.d/99-warp-egress-gateway.conf
 rm -f /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
 rm -f /etc/iproute2/rt_tables.d/warp-egress-gateway.conf
-rm -f /usr/local/sbin/warp-gateway
+rm -f /usr/local/sbin/warp-gateway /usr/local/sbin/warp-gateway-upgrade /usr/local/sbin/warp-gateway-rollback
+rm -f /etc/warp-egress-gateway/VERSION
 rm -rf /usr/local/lib/warp-egress-gateway
 
 if [[ ${PURGE_PROFILE} == true ]]; then

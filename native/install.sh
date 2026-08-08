@@ -60,7 +60,7 @@ log "Installing operating-system dependencies."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates conntrack curl dnsutils iproute2 jq nftables python3 \
+  ca-certificates conntrack curl dnsutils git iproute2 jq nftables python3 \
   tcpdump wireguard-tools
 
 if [[ ${MANAGE_TRANSIT_ADDRESS:-false} == "true" ]]; then
@@ -95,6 +95,8 @@ log "Installing project scripts."
 install -d -m 755 "${LIB_DIR}"
 install -m 755 "${REPO_DIR}"/scripts/*.sh "${LIB_DIR}/"
 install -m 755 "${REPO_DIR}/scripts/warp-gateway" /usr/local/sbin/warp-gateway
+install -m 755 "${REPO_DIR}/../shared/upgrade/remote-upgrade.sh" /usr/local/sbin/warp-gateway-upgrade
+install -m 755 "${REPO_DIR}/../rollback.sh" /usr/local/sbin/warp-gateway-rollback
 
 bash "${LIB_DIR}/preflight.sh"
 
@@ -215,6 +217,8 @@ systemctl restart warp-gateway.service
 systemctl restart warp-gateway-healthcheck.timer
 systemctl restart warp-monitor.timer
 systemctl start warp-monitor.service
+printf '%s\n' "$(<"${REPO_DIR}/../VERSION")" >"${CONFIG_DIR}/VERSION"
+chmod 644 "${CONFIG_DIR}/VERSION"
 
 log "Installation complete."
 /usr/local/sbin/warp-gateway status

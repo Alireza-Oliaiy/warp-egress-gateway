@@ -7,3 +7,15 @@
 5. Keep Ubuntu 24.04 and shellcheck compatibility.
 
 Pull requests changing the kill switch must demonstrate that transit traffic cannot use the management uplink while WARP is stopped.
+
+## Documentation and release discipline
+
+Any user-visible or operator-visible change must update the relevant documentation in the same pull request. Changes to install, upgrade, rollback, monitoring, security, routing, Docker lifecycle, or commands require matching runbook updates and a `CHANGELOG.md` entry.
+
+Before requesting review, run:
+
+```bash
+make test
+```
+
+Release commits must also keep `VERSION`, Docker image metadata, publishing metadata, and the changelog in sync. See `docs/release-process.md`.

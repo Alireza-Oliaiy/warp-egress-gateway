@@ -1,5 +1,7 @@
 # Migrate an existing gateway
 
+> This page is for bringing a manual or non-repository-managed gateway under project management. If the host already runs a repository release and only needs a newer version, use [Upgrade](upgrade.md) instead.
+
 This procedure upgrades a manually configured host to the repository-managed layout without creating a new WARP identity.
 
 ## Reference existing configuration

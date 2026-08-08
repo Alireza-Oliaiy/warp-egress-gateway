@@ -86,3 +86,13 @@ sudo warp-gateway start
 ## 7. Enable production policy
 
 Move only the intended destination group on the upstream firewall. Keep a fallback path available.
+
+## Upgrade
+
+New installs from `0.4.0` include the managed lifecycle helpers. For a reviewed production release:
+
+```bash
+sudo warp-gateway upgrade --ref vX.Y.Z
+```
+
+Use `sudo warp-gateway upgrade --dry-run` before a maintenance window. The upgrader preserves the WARP identity, creates a root-only backup, keeps the fail-closed firewall active, validates the new path, and attempts rollback on failure. See [Upgrade](upgrade.md) and [Rollback](rollback.md).

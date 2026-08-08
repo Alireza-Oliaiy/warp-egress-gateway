@@ -72,3 +72,13 @@ Use `--purge-state` only when the WARP identity should be deleted.
 ## Platform limitation
 
 Docker Desktop on Windows and macOS runs Docker Engine inside a VM and does not expose the physical host's Layer-3 forwarding path in the same way as Docker Engine on Linux. Use a Linux VM or bare-metal Linux Docker host for this edition.
+
+## Upgrade
+
+From `0.4.0`, the Docker host receives `/usr/local/sbin/warp-gateway-upgrade`. Pin a reviewed release tag:
+
+```bash
+sudo warp-gateway-upgrade --mode docker --ref vX.Y.Z
+```
+
+The upgrader stages the new project tree beside the current Compose project, preserves `state`, generated configuration, and `.env`, keeps the independent host guard active, rebuilds the image, waits for health, and retains the previous project tree for rollback. See [Upgrade](upgrade.md) and [Rollback](rollback.md).

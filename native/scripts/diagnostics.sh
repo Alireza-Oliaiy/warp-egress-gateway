@@ -9,6 +9,7 @@ load_config
 OUT=${1:-/tmp/warp-egress-diagnostics-$(date +%Y%m%d-%H%M%S).txt}
 {
   echo "Generated: $(date --iso-8601=seconds)"
+  echo "===== PROJECT VERSION ====="; cat /etc/warp-egress-gateway/VERSION 2>/dev/null || echo "legacy/unknown"
   echo "===== OS ====="; cat /etc/os-release
   echo "===== KERNEL ====="; uname -a
   echo "===== ADDRESSES ====="; ip -br address

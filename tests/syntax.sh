@@ -26,10 +26,14 @@ required=(
   shared/journald/10-warp-egress-gateway-retention.conf
   shared/profile/normalize-warp-profile-ipv4.sh
   tests/profile-ipv4.sh
+  tests/run-all.sh
+  tests/whitespace.sh
   docs/monitoring.md
   docker/setup.sh
   docker/Dockerfile
   docker/compose.yaml
+  docker/generated/.gitkeep
+  docker/state/.gitkeep
   docker/bin/entrypoint.sh
   docker/host/warp-egress-docker-guard.service
   docs/docker.md
@@ -54,6 +58,18 @@ grep -q 'exec bash .*docker/setup.sh' "${ROOT}/setup.sh" || {
 }
 grep -q '\*.sh text eol=lf' "${ROOT}/.gitattributes" || {
   echo "Shell scripts must be pinned to LF line endings." >&2
+  exit 1
+}
+[[ -x ${ROOT}/tests/run-all.sh ]] || {
+  echo "Canonical tests/run-all.sh runner is missing or not executable." >&2
+  exit 1
+}
+grep -q 'tests/run-all.sh' "${ROOT}/Makefile" || {
+  echo "make test must delegate to the canonical test runner." >&2
+  exit 1
+}
+grep -q 'WARP_GATEWAY_PYTHON3' "${ROOT}/tests/whitespace.sh" || {
+  echo "Whitespace validation must fail clearly when Python 3 is unavailable." >&2
   exit 1
 }
 

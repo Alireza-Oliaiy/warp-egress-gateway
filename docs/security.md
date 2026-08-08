@@ -46,3 +46,9 @@ The Docker edition deliberately does not use `privileged: true`. It uses host ne
 The independent `warp_docker_guard` nftables table is installed on the host. Container shutdown removes the runtime route and WireGuard interface but does not remove that host guard. Explicit uninstall is required to remove it.
 
 Do not run the Docker edition on a shared, untrusted Docker host. The container can modify the host networking namespace by design.
+
+## Upgrade and rollback safety
+
+The supported upgrader treats the fail-closed control as independent from the runtime being replaced. Native upgrades pause health timers but keep `warp-gateway-firewall.service` loaded. Docker upgrades stop/rebuild the container while keeping `warp-egress-docker-guard.service` active.
+
+Upgrade backups are mode `0700` and can contain configuration and WARP profile material. They must be handled as sensitive administrative data. Remote upgrades should be pinned to a reviewed immutable tag with `--ref vX.Y.Z`.

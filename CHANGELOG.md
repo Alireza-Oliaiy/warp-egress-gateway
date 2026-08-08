@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 - 2026-08-08
+
+- Added managed upgrade, rollback, version reporting, release lifecycle documentation, and production-oriented operator workflows.
+- Hardened Windows publishing so tracked files intentionally removed by a new release are staged before line-ending renormalization.
+- Hardened release packaging to preserve tracked Docker placeholder directories while still excluding generated runtime state and secrets.
+- Added publisher and release-package regression tests to the required release test suite.
+- Added a repository whitespace/EOF regression gate so trailing whitespace and extra blank lines at EOF fail before publish.
+- Hardened bootstrap upgrades: stable tags now resolve to an exact Git object and must match the downloaded semantic `VERSION`; missing, malformed, or mismatched versions fail before host changes.
+- Added `bash tests/run-all.sh` as the canonical deterministic validation command, with clear mandatory-prerequisite failures and explicit PASS/FAIL/SKIP reporting.
+- Made ZIP, TAR.GZ, and SHA256SUMS mandatory release artifacts; ZIP creation now uses Python 3 safely when `zip` is unavailable, and package regression coverage validates an extracted payload plus a clone-like Git overlay.
+
+- Added a supported in-place upgrade framework for Native and Docker deployments with mode detection, root-only backups, maintenance-window validation, and automatic rollback on failed post-upgrade health checks.
+- Added installed upgrade/rollback helpers and Native `warp-gateway version`, `upgrade`, and `rollback` commands.
+- Added legacy 0.3.x upgrade instructions that preserve the existing WARP identity instead of registering a new account.
+- Added dedicated upgrade, rollback, operations, documentation-index, and release-process runbooks.
+- Added release governance: Semantic Versioning guidance, documentation definition-of-done, pull-request checklist, release metadata tests, and GitHub tag-driven release artifacts with SHA256 checksums.
+- Updated the Windows publisher to run the complete regression suite and optionally create/push the `vX.Y.Z` release tag.
+- Added managed upgrade/rollback regression checks and documentation completeness checks to CI.
+
 ## 0.3.3 - 2026-08-08
 
 - Fixed startup failure on hosts with IPv6 disabled when `wgcf` profiles contain an IPv6 interface address.

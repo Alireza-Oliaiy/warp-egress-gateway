@@ -7,7 +7,9 @@ source "${SCRIPT_DIR}/common.sh"
 require_root
 load_config
 
-printf '===== SERVICES =====\n'
+printf '===== VERSION =====\n'
+if [[ -r /etc/warp-egress-gateway/VERSION ]]; then cat /etc/warp-egress-gateway/VERSION; else echo "legacy/unknown"; fi
+printf '\n===== SERVICES =====\n'
 systemctl is-active "warp-gateway-firewall.service" "wg-quick@${WARP_IF}.service" "warp-gateway.service" "warp-monitor.timer" || true
 printf '\n===== INTERFACES =====\n'
 for interface in "${UPLINK_IF}" "${TRANSIT_IF}" "${WARP_IF}"; do

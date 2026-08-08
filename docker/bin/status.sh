@@ -3,6 +3,8 @@ set -Eeuo pipefail
 CONFIG_FILE=/etc/warp-egress-gateway/warp-gateway.env
 # shellcheck disable=SC1090
 source "${CONFIG_FILE}"
+echo "===== VERSION ====="
+echo "${WARP_GATEWAY_VERSION:-container-image/unknown}"
 echo "===== INTERFACES ====="
 for interface in "${UPLINK_IF}" "${TRANSIT_IF}" "${WARP_IF}"; do
   ip -br address show dev "${interface}" 2>/dev/null || true

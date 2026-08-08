@@ -5,7 +5,8 @@ services:
       dockerfile: docker/Dockerfile
       args:
         WGCF_VERSION: ${WGCF_VERSION:-2.2.31}
-    image: warp-egress-gateway:${IMAGE_TAG:-0.3.3}
+        WARP_GATEWAY_VERSION: ${IMAGE_TAG:-0.4.0}
+    image: warp-egress-gateway:${IMAGE_TAG:-0.4.0}
     container_name: warp-egress-gateway
     network_mode: host
     cap_add:

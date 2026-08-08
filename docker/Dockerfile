@@ -1,8 +1,10 @@
 FROM ubuntu:24.04
 
 ARG WGCF_VERSION=2.2.31
+ARG WARP_GATEWAY_VERSION=0.4.0
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    WARP_GATEWAY_VERSION=${WARP_GATEWAY_VERSION}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

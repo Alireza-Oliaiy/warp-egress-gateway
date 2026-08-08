@@ -55,6 +55,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ ${EUID} -eq 0 ]] || die "Run with sudo or as root."
+if [[ -r /etc/warp-egress-gateway/warp-gateway.env ]] && { [[ -x /usr/local/sbin/warp-gateway ]] || [[ -f /etc/systemd/system/warp-gateway.service ]]; }; then
+  die "An existing Native installation was detected. Use 'sudo warp-gateway upgrade' or 'sudo bash setup.sh --upgrade'. Use native/install.sh directly only for an intentional reconfiguration."
+fi
 if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'warp-egress-gateway'; then
   die "Docker edition is already running. Remove it before installing Native mode."
 fi

@@ -18,7 +18,7 @@
 
 اسکریپت نام Interfaceها، Default Gateway، IP طرف مقابل `/30`، WARP، NAT، Policy Routing، MSS Clamping، Health Check، نگهداری لاگ هفت‌روزه، مانیتور یک‌دقیقه‌ای و Kill Switch را خودش آماده می‌کند.
 
-از نسخه `0.3.3` پروفایل‌های dual-stack تولیدشده توسط `wgcf` قبل از اجرای `wg-quick` برای مسیر IPv4-only این پروژه نرمال می‌شوند؛ بنابراین خاموش بودن IPv6 روی Host باعث Fail شدن `warp0` نمی‌شود.
+از نسخه `0.3.3` پروفایل‌های dual-stack تولیدشده توسط `wgcf` قبل از اجرای `wg-quick` برای مسیر IPv4-only این پروژه نرمال می‌شوند؛ بنابراین خاموش بودن IPv6 روی Host باعث Fail شدن `warp0` نمی‌شود. از نسخه `0.4.0` چرخه رسمی Backup، Upgrade و Rollback نیز برای Native و Docker اضافه شده است.
 
 > این پروژه وابسته به Cloudflare نیست. ابزار `wgcf` غیررسمی است. قبل از ثبت حساب، شرایط Cloudflare را بررسی کن.
 
@@ -32,7 +32,8 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.3.3: fix IPv6-disabled WARP profile startup"
+  -CommitMessage "Release v0.4.0: add managed upgrade and release lifecycle" `
+  -CreateReleaseTag
 ```
 
 Git Credential Manager ممکن است مرورگر را برای ورود به GitHub باز کند. کلید یا پروفایل WARP داخل Repository کپی نمی‌شود.
@@ -50,9 +51,32 @@ sudo bash setup.sh
 ```text
 1) نصب Native روی Ubuntu
 2) نصب Docker روی Linux
+3) Upgrade نصب موجود
 ```
 
 سپس IP اصلی و IP Transit را وارد می‌کنی.
+
+## آپگرید نصب موجود
+
+از نسخه `0.4.0` روی نصب Native دستور رسمی Upgrade نصب می‌شود؛ بدون `--ref` بالاترین Release Tag با قالب `vX.Y.Z` انتخاب می‌شود:
+
+```bash
+sudo warp-gateway upgrade --ref v0.4.0
+```
+
+برای بررسی بدون اعمال تغییر:
+
+```bash
+sudo warp-gateway upgrade --dry-run
+```
+
+برای نسخه‌های قدیمی `0.3.x`، آخرین Repository را Clone کن و Upgrader عمومی را اجرا کن:
+
+```bash
+sudo bash upgrade.sh --mode native
+```
+
+در Docker همین Upgrader با `--mode docker` استفاده می‌شود. Upgrade قبل از هر تغییر Backup روت‌فقط می‌سازد، WARP Identity و تنظیمات فعلی را حفظ می‌کند، Kill Switch/Host Guard را فعال نگه می‌دارد، مسیر جدید را تست می‌کند و اگر Validation شکست بخورد Rollback خودکار را تلاش می‌کند. جزئیات: [راهنمای Upgrade](docs/upgrade.md) و [راهنمای Rollback](docs/rollback.md).
 
 ### نصب Native بدون پرسش
 
@@ -105,6 +129,9 @@ sudo warp-gateway failures
 sudo warp-gateway restart
 sudo warp-gateway lockdown
 sudo warp-gateway logs
+sudo warp-gateway version
+sudo warp-gateway upgrade --ref vX.Y.Z
+sudo warp-gateway rollback --backup /var/backups/warp-egress-gateway/upgrade-...
 ```
 
 
@@ -189,3 +216,14 @@ sudo bash docker/uninstall.sh
 - جریان ثبت `wgcf` غیررسمی است.
 - برای مسیرهای حیاتی، روی FortiGate مسیر Backup نگه دار.
 - Docker Edition همچنان نیازمند Bootstrap روی Linux Host است؛ اجرای امن Gateway شفاف فقط با یک Container کاملاً ایزوله ممکن نیست.
+
+## مستندات پروژه
+
+- [فهرست مستندات](docs/README.md)
+- [Upgrade](docs/upgrade.md)
+- [Rollback](docs/rollback.md)
+- [Operations](docs/operations.md)
+- [Monitoring](docs/monitoring.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Security](docs/security.md)
+- [Release Process](docs/release-process.md)

@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryUrl = "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git",
-    [string]$CommitMessage = "Release v0.3.3: fix IPv6-disabled WARP profile startup",
+    [string]$CommitMessage = "Release v0.4.0: add managed upgrade and release lifecycle",
     [string]$Branch = "main",
+    [switch]$CreateReleaseTag,
     [string]$WorkDirectory = (Join-Path $env:TEMP "warp-egress-gateway-publish")
 )
 
@@ -16,6 +17,28 @@ function Invoke-Git {
     if ($LASTEXITCODE -ne 0) {
         throw "git command failed: git $($GitArguments -join ' ')"
     }
+}
+
+function Publish-ReleaseTag {
+    param([Parameter(Mandatory = $true)][string]$CheckoutPath)
+
+    $Version = (Get-Content -LiteralPath (Join-Path $CheckoutPath "VERSION") -Raw).Trim()
+    if ([string]::IsNullOrWhiteSpace($Version)) { throw "VERSION is empty." }
+    $Tag = "v$Version"
+
+    & git ls-remote --exit-code --tags origin "refs/tags/$Tag" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "Remote release tag $Tag already exists. Release tags are immutable; bump VERSION for a new release."
+    }
+
+    & git rev-parse -q --verify "refs/tags/$Tag" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "Local tag $Tag already exists unexpectedly."
+    }
+
+    Write-Host "Creating release tag $Tag"
+    Invoke-Git -GitArguments @("tag", "-a", $Tag, "-m", "Release $Tag")
+    Invoke-Git -GitArguments @("push", "origin", $Tag)
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -51,6 +74,9 @@ Push-Location $WorkFullPath
 try {
     Write-Host "[4/8] Enforcing LF-safe repository settings"
     Invoke-Git -GitArguments @("config", "core.autocrlf", "false")
+    # Stage additions/deletions first so --renormalize never tries to stat a
+    # tracked path intentionally removed from the new release payload.
+    Invoke-Git -GitArguments @("add", "-A")
     Invoke-Git -GitArguments @("add", "--renormalize", ".")
     Invoke-Git -GitArguments @("add", "-A")
 
@@ -78,10 +104,24 @@ try {
         Write-Host "Running repository tests with Bash"
         & bash tests/syntax.sh
         if ($LASTEXITCODE -ne 0) { throw "Syntax test failed." }
+        & bash tests/whitespace.sh
+        if ($LASTEXITCODE -ne 0) { throw "Whitespace/EOF test failed." }
         & bash tests/security-order.sh
         if ($LASTEXITCODE -ne 0) { throw "Security test failed." }
         & bash tests/monitoring.sh
         if ($LASTEXITCODE -ne 0) { throw "Monitoring test failed." }
+        & bash tests/profile-ipv4.sh
+        if ($LASTEXITCODE -ne 0) { throw "IPv4 profile regression test failed." }
+        & bash tests/upgrade.sh
+        if ($LASTEXITCODE -ne 0) { throw "Upgrade safety test failed." }
+        & bash tests/docs.sh
+        if ($LASTEXITCODE -ne 0) { throw "Documentation test failed." }
+        & bash tests/release-metadata.sh
+        if ($LASTEXITCODE -ne 0) { throw "Release metadata test failed." }
+        & bash tests/publisher.sh
+        if ($LASTEXITCODE -ne 0) { throw "Windows publisher regression test failed." }
+        & bash tests/package.sh
+        if ($LASTEXITCODE -ne 0) { throw "Release package regression test failed." }
     }
     else {
         Write-Warning "bash was not found in PATH; GitHub Actions will run the Linux tests after push."
@@ -91,6 +131,10 @@ try {
     $DiffExitCode = $LASTEXITCODE
     if ($DiffExitCode -eq 0) {
         Write-Host "No changes to publish. The remote already matches this release."
+        if ($CreateReleaseTag) {
+            Publish-ReleaseTag -CheckoutPath $WorkFullPath
+            Write-Host "Release tag published successfully." -ForegroundColor Green
+        }
         return
     }
     if ($DiffExitCode -ne 1) {
@@ -118,6 +162,10 @@ try {
 
     Write-Host "[8/8] Pushing to origin/$Branch"
     Invoke-Git -GitArguments @("push", "origin", $Branch)
+
+    if ($CreateReleaseTag) {
+        Publish-ReleaseTag -CheckoutPath $WorkFullPath
+    }
 
     Write-Host ""
     Write-Host "Published successfully." -ForegroundColor Green

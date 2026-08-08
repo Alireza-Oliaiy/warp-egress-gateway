@@ -54,6 +54,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ ${EUID} -eq 0 ]] || die "Run with sudo or as root."
+if [[ -r /etc/warp-egress-gateway-docker/guard.env ]] || { command -v docker >/dev/null 2>&1 && docker inspect warp-egress-gateway >/dev/null 2>&1; }; then
+  die "An existing Docker installation was detected. Use 'sudo warp-gateway-upgrade --mode docker' or 'sudo bash setup.sh --upgrade'."
+fi
 if systemctl is-active --quiet warp-gateway.service 2>/dev/null; then
   die "Native edition is already active. Remove it before installing Docker mode."
 fi
@@ -264,7 +267,7 @@ fi
 
 log "Installing Linux host prerequisites."
 apt-get update
-apt-get install -y nftables wireguard-tools docker.io docker-compose-v2 ca-certificates curl
+apt-get install -y nftables wireguard-tools docker.io docker-compose-v2 ca-certificates curl git
 systemctl enable --now docker
 modprobe wireguard || true
 
@@ -351,6 +354,8 @@ install -m 0755 "${ROOT_DIR}/host/guard-remove.sh" /usr/local/sbin/warp-egress-d
 install -m 0644 "${ROOT_DIR}/host/warp-egress-docker-guard.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now warp-egress-docker-guard.service
+install -m 0755 "${ROOT_DIR}/../shared/upgrade/remote-upgrade.sh" /usr/local/sbin/warp-gateway-upgrade
+install -m 0755 "${ROOT_DIR}/../rollback.sh" /usr/local/sbin/warp-gateway-rollback
 
 [[ -f ${ROOT_DIR}/.env ]] || cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
 
@@ -360,6 +365,7 @@ docker compose build
 docker compose up -d
 
 log "Waiting for the container to initialize."
+state=""
 for _ in $(seq 1 30); do
   state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' warp-egress-gateway 2>/dev/null || true)
   [[ ${state} == healthy ]] && break
@@ -367,8 +373,16 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
+if [[ ${state} != healthy ]]; then
+  docker compose ps || true
+  docker compose logs --tail=100 gateway || true
+  die "Docker gateway did not become healthy."
+fi
+
+printf '%s\n' "$(<"${ROOT_DIR}/../VERSION")" >/etc/warp-egress-gateway-docker/VERSION
+chmod 644 /etc/warp-egress-gateway-docker/VERSION
 docker compose ps
-docker compose exec -T gateway /app/bin/status.sh || docker compose logs --tail=100 gateway
+docker compose exec -T gateway /app/bin/status.sh
 
 cat <<DONE
 

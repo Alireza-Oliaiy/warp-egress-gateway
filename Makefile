@@ -2,13 +2,20 @@ SHELL := /usr/bin/env bash
 
 .PHONY: test syntax shellcheck compose package
 
-test: syntax shellcheck compose
+test:
+	@bash tests/run-all.sh
 
 syntax:
 	@bash tests/syntax.sh
+	@bash tests/whitespace.sh
 	@bash tests/security-order.sh
 	@bash tests/monitoring.sh
 	@bash tests/profile-ipv4.sh
+	@bash tests/upgrade.sh
+	@bash tests/docs.sh
+	@bash tests/release-metadata.sh
+	@bash tests/publisher.sh
+	@bash tests/package.sh
 
 shellcheck:
 	@if command -v shellcheck >/dev/null; then \
@@ -28,7 +35,4 @@ compose:
 	fi
 
 package:
-	@mkdir -p release
-	@version=$$(cat VERSION); \
-	tar --exclude='./release' --exclude='./.git' -czf "release/warp-egress-gateway-$${version}.tar.gz" .; \
-	echo "release/warp-egress-gateway-$${version}.tar.gz"
+	@bash scripts/package-release.sh

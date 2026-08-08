@@ -11,6 +11,7 @@ systemctl disable --now warp-egress-docker-guard.service 2>/dev/null || true
 /usr/local/sbin/warp-egress-docker-guard-remove 2>/dev/null || true
 rm -f /etc/systemd/system/warp-egress-docker-guard.service
 rm -f /usr/local/sbin/warp-egress-docker-guard-apply /usr/local/sbin/warp-egress-docker-guard-remove
+rm -f /usr/local/sbin/warp-gateway-upgrade /usr/local/sbin/warp-gateway-rollback
 rm -rf /etc/warp-egress-gateway-docker
 rm -f /etc/sysctl.d/99-warp-egress-docker.conf
 rm -f /etc/systemd/journald.conf.d/10-warp-egress-gateway-retention.conf
