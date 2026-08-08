@@ -8,6 +8,7 @@ syntax:
 	@bash tests/syntax.sh
 	@bash tests/security-order.sh
 	@bash tests/monitoring.sh
+	@bash tests/profile-ipv4.sh
 
 shellcheck:
 	@if command -v shellcheck >/dev/null; then \

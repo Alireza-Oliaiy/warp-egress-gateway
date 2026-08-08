@@ -59,6 +59,8 @@ PROFILE_SOURCE=${EXISTING_WARP_PROFILE:-${STATE_DIR}/wgcf-profile.conf}
 
 tmp_profile=${RUN_DIR}/${WARP_IF}.conf
 cp "${PROFILE_SOURCE}" "${tmp_profile}"
+log "Normalizing WARP profile for the IPv4-only gateway path."
+/app/bin/normalize-warp-profile-ipv4.sh "${tmp_profile}"
 sed -i -E '/^(DNS|MTU|Table|PersistentKeepalive)[[:space:]]*=/d' "${tmp_profile}"
 sed -i "/^\[Peer\]/i MTU = ${WARP_MTU:-1280}\nTable = off" "${tmp_profile}"
 sed -i "/^Endpoint[[:space:]]*=/a PersistentKeepalive = ${PERSISTENT_KEEPALIVE:-25}" "${tmp_profile}"

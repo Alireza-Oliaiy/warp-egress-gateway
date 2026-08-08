@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3 - 2026-08-08
+
+- Fixed startup failure on hosts with IPv6 disabled when `wgcf` profiles contain an IPv6 interface address.
+- Native and Docker deployments now normalize WARP profiles to the project's IPv4-only data path before `wg-quick` starts.
+- The normalizer preserves the WARP identity and IPv4 address while removing IPv6 from `Address` and forcing `AllowedIPs = 0.0.0.0/0`.
+- Added a regression test covering generated/imported dual-stack WARP profiles so this failure cannot silently return.
+
 ## 0.3.2 - 2026-08-08
 
 - Added persistent systemd journal retention for seven days with compression and bounded disk usage.

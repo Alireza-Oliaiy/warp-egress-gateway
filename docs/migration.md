@@ -28,6 +28,7 @@ sudo ./native/install.sh \
 ```
 
 The installer backs up the existing WARP configuration before writing the normalized profile.
+From version `0.3.3`, normalization also removes the unused WARP IPv6 interface address and IPv6 AllowedIPs because the gateway data path is IPv4-only. This prevents `wg-quick` startup failures on hosts where IPv6 is disabled while preserving the existing WARP identity.
 
 ## Important safety improvement
 

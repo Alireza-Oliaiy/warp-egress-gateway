@@ -161,6 +161,8 @@ fi
 tmp_profile=$(mktemp)
 trap 'rm -f "${tmp_profile}"' EXIT
 cp "${PROFILE_SOURCE}" "${tmp_profile}"
+log "Normalizing WARP profile for the IPv4-only gateway path."
+bash "${REPO_DIR}/../shared/profile/normalize-warp-profile-ipv4.sh" "${tmp_profile}"
 sed -i -E \
   -e '/^(DNS|MTU|Table|PersistentKeepalive)[[:space:]]*=/d' \
   "${tmp_profile}"

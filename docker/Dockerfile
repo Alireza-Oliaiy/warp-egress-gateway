@@ -29,6 +29,7 @@ RUN set -eux; \
 WORKDIR /app
 COPY native/scripts/ /app/scripts/
 COPY docker/bin/ /app/bin/
+COPY shared/profile/normalize-warp-profile-ipv4.sh /app/bin/normalize-warp-profile-ipv4.sh
 RUN chmod 0755 /app/scripts/*.sh /app/bin/*.sh
 
 ENTRYPOINT ["/app/bin/entrypoint.sh"]

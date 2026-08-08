@@ -24,6 +24,8 @@ required=(
   native/systemd/warp-monitor.timer
   docker/bin/monitor.sh
   shared/journald/10-warp-egress-gateway-retention.conf
+  shared/profile/normalize-warp-profile-ipv4.sh
+  tests/profile-ipv4.sh
   docs/monitoring.md
   docker/setup.sh
   docker/Dockerfile

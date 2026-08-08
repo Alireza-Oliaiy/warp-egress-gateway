@@ -18,6 +18,8 @@
 
 اسکریپت نام Interfaceها، Default Gateway، IP طرف مقابل `/30`، WARP، NAT، Policy Routing، MSS Clamping، Health Check، نگهداری لاگ هفت‌روزه، مانیتور یک‌دقیقه‌ای و Kill Switch را خودش آماده می‌کند.
 
+از نسخه `0.3.3` پروفایل‌های dual-stack تولیدشده توسط `wgcf` قبل از اجرای `wg-quick` برای مسیر IPv4-only این پروژه نرمال می‌شوند؛ بنابراین خاموش بودن IPv6 روی Host باعث Fail شدن `warp0` نمی‌شود.
+
 > این پروژه وابسته به Cloudflare نیست. ابزار `wgcf` غیررسمی است. قبل از ثبت حساب، شرایط Cloudflare را بررسی کن.
 
 ## انتشار از Windows روی GitHub
@@ -30,7 +32,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.3.2: add seven-day observability and passive WARP monitoring"
+  -CommitMessage "Release v0.3.3: fix IPv6-disabled WARP profile startup"
 ```
 
 Git Credential Manager ممکن است مرورگر را برای ورود به GitHub باز کند. کلید یا پروفایل WARP داخل Repository کپی نمی‌شود.

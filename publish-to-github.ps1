@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryUrl = "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git",
-    [string]$CommitMessage = "Release v0.3.2: add seven-day observability and passive WARP monitoring",
+    [string]$CommitMessage = "Release v0.3.3: fix IPv6-disabled WARP profile startup",
     [string]$Branch = "main",
     [string]$WorkDirectory = (Join-Path $env:TEMP "warp-egress-gateway-publish")
 )
