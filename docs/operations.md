@@ -71,6 +71,8 @@ sudo journalctl -u wg-quick@warp0.service -u warp-gateway.service --since '2 hou
 ```
 
 The default monitor is passive and `AUTO_RECOVER=false`, so failure evidence is not intentionally erased by an automatic restart loop.
+`STATUS=WARN` is telemetry (for example, a stale handshake with a successful
+`warp=on` trace); `warp-gateway failures` remains limited to `STATUS=FAIL`.
 
 ## Backup retention
 

@@ -2,6 +2,9 @@
 
 ## 0.4.0 - 2026-08-08
 
+- Fixed qualification-discovered false monitor failures: a stale WireGuard
+  handshake is now `STATUS=WARN` when the active WARP trace proves the
+  dataplane is working; actual WARP or safety-check failures remain `FAIL`.
 - Fixed qualification-discovered backup permissions: every timestamped upgrade
   backup and `rootfs` directory is now explicitly `root:root` mode `0700`,
   while manifests and Native upgrade configuration copies are mode `0600`.

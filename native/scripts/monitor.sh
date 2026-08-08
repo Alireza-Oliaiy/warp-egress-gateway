@@ -14,7 +14,7 @@ CURL_TIMEOUT=${MONITOR_CURL_TIMEOUT:-10}
 URL=${HEALTHCHECK_URL:-https://www.cloudflare.com/cdn-cgi/trace}
 
 WG_STATE="down"
-HANDSHAKE_STATE="fail"
+HANDSHAKE_STATE="none"
 HANDSHAKE_AGE="none"
 DIRECT_STATE="fail"
 DIRECT_RC="none"
@@ -104,16 +104,24 @@ if nft list table inet "${NFT_TABLE}" >/dev/null 2>&1; then
   NFT_STATE="ok"
 fi
 
-STATUS="OK"
-if [[ ${WG_STATE} != "up" ]] ||
-   [[ ${HANDSHAKE_STATE} != "ok" ]] ||
-   [[ ${DIRECT_STATE} != "ok" ]] ||
+monitor_status() {
+  if [[ ${WG_STATE} != "up" ]] ||
+    [[ ${DIRECT_STATE} != "ok" ]] ||
    [[ ${WARP_STATE} != "on" ]] ||
    [[ ${ROUTE_STATE} != "ok" ]] ||
    [[ ${NFT_STATE} != "ok" ]] ||
    [[ ${UPSTREAM_STATE} == "fail" ]]; then
-  STATUS="FAIL"
-fi
+    printf 'FAIL\n'
+  elif [[ ${HANDSHAKE_STATE} != "ok" ]]; then
+    # An active trace reporting warp=on is stronger current dataplane evidence
+    # than a passive WireGuard handshake timestamp.
+    printf 'WARN\n'
+  else
+    printf 'OK\n'
+  fi
+}
+
+STATUS=$(monitor_status)
 
 logger -t warp-monitor \
   "STATUS=${STATUS} wg=${WG_STATE} handshake=${HANDSHAKE_STATE} handshake_age=${HANDSHAKE_AGE}s direct=${DIRECT_STATE} direct_rc=${DIRECT_RC} direct_ip=${DIRECT_IP} warp=${WARP_STATE} warp_rc=${WARP_RC} warp_ip=${WARP_IP_PUBLIC} colo=${WARP_COLO} loc=${WARP_LOC} upstream=${UPSTREAM_STATE} route=${ROUTE_STATE} nft=${NFT_STATE}"

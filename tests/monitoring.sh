@@ -48,4 +48,38 @@ if grep -q '^AUTO_RECOVER="true"' "${ROOT}/native/config/warp-gateway.env.exampl
   exit 1
 fi
 
+run_monitor_decision_cases() {
+  local monitor=$1 helper case_name expected actual
+  helper=$(mktemp)
+  awk '
+    /^monitor_status\(\)/ { capture=1 }
+    capture { print }
+    capture && /^}$/ { exit }
+  ' "${monitor}" >"${helper}"
+  [[ -s ${helper} ]] || { echo "Monitor decision helper is missing: ${monitor}" >&2; rm -f "${helper}"; exit 1; }
+  # shellcheck disable=SC1090
+  source "${helper}"
+  rm -f "${helper}"
+
+  for case_name in \
+    'fresh:OK:up:ok:ok:on:ok:ok:ok' \
+    'stale_dataplane_healthy:WARN:up:stale:ok:on:ok:ok:ok' \
+    'stale_warp_failed:FAIL:up:stale:ok:fail:ok:ok:ok' \
+    'none_warp_failed:FAIL:up:none:ok:fail:ok:ok:ok' \
+    'route_failed:FAIL:up:ok:ok:on:fail:ok:ok' \
+    'nft_failed:FAIL:up:ok:ok:on:ok:fail:ok' \
+    'upstream_failed:FAIL:up:ok:ok:on:ok:ok:fail'; do
+    # shellcheck disable=SC2034 # inputs consumed by the extracted monitor helper
+    IFS=: read -r case_name expected WG_STATE HANDSHAKE_STATE DIRECT_STATE WARP_STATE ROUTE_STATE NFT_STATE UPSTREAM_STATE <<<"${case_name}"
+    actual=$(monitor_status)
+    [[ ${actual} == "${expected}" ]] || {
+      echo "${monitor}: ${case_name} expected ${expected}, got ${actual}." >&2
+      exit 1
+    }
+  done
+}
+
+run_monitor_decision_cases "${NATIVE_MONITOR}"
+run_monitor_decision_cases "${DOCKER_MONITOR}"
+
 echo "Seven-day journal retention and passive monitoring checks passed."

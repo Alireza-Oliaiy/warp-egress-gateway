@@ -45,6 +45,13 @@ The record distinguishes:
 - Policy-routing table health.
 - nftables gateway table health.
 
+`STATUS=FAIL` means a required dataplane or safety check failed: interface,
+direct path, WARP `warp=on` probe, route, nftables table, or required upstream
+reachability. `STATUS=WARN` means the active WARP probe is healthy but the
+latest WireGuard handshake is stale or absent. Handshake age remains useful
+telemetry, but it is not stronger evidence than a successful current WARP
+trace. `warp-gateway failures` intentionally shows only `STATUS=FAIL` records.
+
 Review the last seven days:
 
 ```bash

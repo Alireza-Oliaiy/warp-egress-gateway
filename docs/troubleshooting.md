@@ -9,6 +9,10 @@ sudo tcpdump -ni <uplink-interface> udp port 2408
 
 Check UDP reachability, DNS resolution for the endpoint, and upstream firewall policy.
 
+A stale or absent handshake timestamp is recorded as `STATUS=WARN`, rather
+than a failure, only when the active WARP trace still returns `warp=on` and all
+other monitor checks are healthy. A failed WARP trace remains `STATUS=FAIL`.
+
 ## Host Internet works but forwarded traffic does not
 
 ```bash
