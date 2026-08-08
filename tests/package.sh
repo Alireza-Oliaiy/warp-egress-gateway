@@ -70,12 +70,17 @@ if [[ ${WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED:-false} != true ]]; then
   overlay="${OUT}/overlay"
   "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${extracted}" <<'PY'
 from pathlib import Path
+import os
 import sys
 import zipfile
 
 archive_path, destination = map(Path, sys.argv[1:])
 with zipfile.ZipFile(archive_path) as archive:
-    archive.extractall(destination)
+    for member in archive.infolist():
+        extracted = Path(archive.extract(member, destination))
+        mode = (member.external_attr >> 16) & 0o777
+        if mode and extracted.is_file():
+            os.chmod(extracted, mode)
 PY
   [[ -d ${extracted}/${NAME} ]] || { echo "Release ZIP extraction failed." >&2; exit 1; }
   WARP_GATEWAY_PYTHON3="${PYTHON3_BIN}" WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED=true \
