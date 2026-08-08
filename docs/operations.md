@@ -15,6 +15,10 @@ sudo warp-gateway logs
 sudo warp-gateway diagnostics
 ```
 
+The firewall guard is an early-boot safety dependency. Do not disable or stop
+`warp-gateway-firewall.service` to troubleshoot routing; its stop action keeps
+the rules loaded intentionally.
+
 ## Native maintenance commands
 
 Restart the managed path:

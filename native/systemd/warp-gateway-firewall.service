@@ -1,8 +1,10 @@
 [Unit]
 Description=WARP Egress Gateway persistent kill switch and NAT
-Wants=network-online.target
-After=network-online.target
-Before=warp-gateway.service
+DefaultDependencies=no
+After=local-fs.target
+Wants=network-pre.target
+Before=network-pre.target warp-gateway.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
@@ -14,4 +16,4 @@ ExecReload=/usr/local/lib/warp-egress-gateway/firewall-apply.sh
 ExecStop=/bin/true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

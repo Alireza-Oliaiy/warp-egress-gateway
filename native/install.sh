@@ -174,7 +174,7 @@ install -m 600 "${tmp_profile}" "/etc/wireguard/${WARP_IF}.conf"
 
 log "Installing persistent kernel settings."
 cat > /etc/sysctl.d/99-warp-egress-gateway.conf <<SYSCTL
-net.ipv4.ip_forward=1
+net.ipv4.ip_forward=0
 net.ipv4.conf.all.rp_filter=2
 net.ipv4.conf.default.rp_filter=2
 SYSCTL

@@ -2,6 +2,10 @@
 
 ## 0.4.0 - 2026-08-08
 
+- Corrected a reboot-qualification ordering gap before it could prove a
+  fail-closed guarantee: the Native firewall and Docker host guard now install
+  before network-pre, with forwarding disabled until their nftables guard is
+  active.
 - Fixed qualification-discovered false monitor failures: a stale WireGuard
   handshake is now `STATUS=WARN` when the active WARP trace proves the
   dataplane is working; actual WARP or safety-check failures remain `FAIL`.

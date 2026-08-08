@@ -1,8 +1,10 @@
 [Unit]
 Description=Fail-closed host guard for Docker WARP Egress Gateway
-Wants=network-online.target
-After=network-online.target
-Before=docker.service
+DefaultDependencies=no
+After=local-fs.target
+Wants=network-pre.target
+Before=network-pre.target docker.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
@@ -12,4 +14,4 @@ ExecReload=/usr/local/sbin/warp-egress-docker-guard-apply
 ExecStop=/bin/true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

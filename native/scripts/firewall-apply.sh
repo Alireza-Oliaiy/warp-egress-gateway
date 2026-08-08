@@ -9,8 +9,8 @@ load_config
 
 TCP_MSS=${TCP_MSS:-1240}
 
-nft delete table inet "${NFT_TABLE}" 2>/dev/null || true
 nft -f - <<EOF_NFT
+destroy table inet ${NFT_TABLE}
 table inet ${NFT_TABLE} {
     chain forward_mangle {
         type filter hook forward priority mangle; policy accept;
@@ -51,5 +51,9 @@ table inet ${NFT_TABLE} {
     }
 }
 EOF_NFT
+
+# Forwarding stays disabled from boot until the transaction above has installed
+# the independent transit kill switch.
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
 log "Scoped nftables kill switch and NAT loaded in table inet ${NFT_TABLE}."

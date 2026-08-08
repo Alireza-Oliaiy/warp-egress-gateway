@@ -6,8 +6,8 @@ CONFIG=/etc/warp-egress-gateway-docker/guard.env
 source "${CONFIG}"
 : "${TRANSIT_IF:?TRANSIT_IF is required}"
 : "${WARP_IF:=warp0}"
-nft delete table inet warp_docker_guard 2>/dev/null || true
 nft -f - <<NFT
+destroy table inet warp_docker_guard
 table inet warp_docker_guard {
   chain forward {
     type filter hook forward priority -10; policy accept;
@@ -16,3 +16,6 @@ table inet warp_docker_guard {
   }
 }
 NFT
+
+# Docker forwarding is enabled only after the host guard transaction succeeds.
+sysctl -w net.ipv4.ip_forward=1 >/dev/null

@@ -39,11 +39,19 @@ Only traffic sourced from the WARP interface address and traffic entering `TRANS
 
 ## Boot ordering
 
-1. Network becomes online.
-2. Persistent firewall and kill switch load.
-3. `wg-quick@WARP_IF` starts.
-4. Policy-routing rules and WARP default table load.
-5. Health timer begins checks.
+1. Persistent forwarding defaults to disabled during early boot.
+2. The independent firewall guard starts from `sysinit.target`, after local
+   filesystems but before `network-pre.target`; nftables accepts the interface
+   names as string matches even before those links exist.
+3. The guard installs its nftables transaction, then enables IPv4 forwarding.
+4. `wg-quick@WARP_IF` requires and starts after the guard; policy routing
+   requires and starts after both.
+5. Health and monitor timers begin after the protected data path is available.
+
+The guard uses `DefaultDependencies=no`, explicitly participates in
+`network-pre.target`, and remains loaded on stop. This ordering prevents the
+transit interface from becoming a forwarding path via the main uplink before
+the kill switch exists.
 
 ## Deployment editions
 
@@ -56,7 +64,7 @@ The firewall, WireGuard interface, policy routing, and health services are insta
 The container shares the Linux host network namespace and operates the same host interfaces, routes, WireGuard interface, and nftables data plane. A separate host systemd guard loads before Docker and blocks transit fallback independently of container state.
 
 ```text
-host guard -> Docker container -> warp0 and policy routing
+sysinit host guard -> network-pre -> Docker container -> warp0 and policy routing
 ```
 
 The Docker edition is operationally containerized, but it is not network-isolated from the Linux host because a transparent gateway must control the host Layer-3 path.

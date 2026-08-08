@@ -34,6 +34,18 @@ sudo systemctl status warp-gateway.service
 sudo ip route get 8.8.8.8 from <trusted-source-ip> iif <transit-interface>
 ```
 
+## Firewall guard fails during boot
+
+Forwarding remains disabled if the early firewall/host guard cannot install.
+Do not enable `net.ipv4.ip_forward` manually as a workaround. Inspect the
+guard and network-pre ordering instead:
+
+```bash
+sudo systemctl status warp-gateway-firewall.service
+sudo systemctl show -p After -p Before -p Requires warp-gateway-firewall.service
+sudo journalctl -u warp-gateway-firewall.service -b --no-pager
+```
+
 ## TCP works but some sites stall
 
 Inspect MSS and MTU:

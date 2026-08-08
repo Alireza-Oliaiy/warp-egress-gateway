@@ -27,6 +27,13 @@ Firewall lifetime is intentionally separate from tunnel lifetime. The project do
 
 Only the explicit uninstall flow removes the nftables table.
 
+At boot, IPv4 forwarding defaults to disabled. The Native firewall and Docker
+host guard are early `sysinit.target` services ordered before
+`network-pre.target`; each installs the nftables guard atomically before it
+enables forwarding. WireGuard, policy routing, and Docker then start only in
+the protected order. This prevents a transient transit-to-uplink forwarding
+path during boot or a guard-install failure.
+
 ## Dedicated host recommendation
 
 Use a dedicated VM. Although the nftables rules are scoped to `TRANSIT_IF`, combining unrelated routing, container networking, or third-party VPN software on the same host increases operational risk.
