@@ -14,7 +14,7 @@ Inspect a backup manifest:
 sudo cat /var/backups/warp-egress-gateway/upgrade-YYYYMMDD-HHMMSS/manifest.env
 ```
 
-The manifest records the mode, previous version, target version, host, and timestamp. Docker manifests also record the previous project tree.
+The manifest records the mode, previous version, target version, host, and timestamp. Docker manifests also record the previous project tree. Backup directories are `root:root` mode `0700`; manifests and Native upgrade configuration copies are mode `0600`.
 
 ## Manual rollback command
 

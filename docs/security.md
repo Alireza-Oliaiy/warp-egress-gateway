@@ -51,4 +51,4 @@ Do not run the Docker edition on a shared, untrusted Docker host. The container 
 
 The supported upgrader treats the fail-closed control as independent from the runtime being replaced. Native upgrades pause health timers but keep `warp-gateway-firewall.service` loaded. Docker upgrades stop/rebuild the container while keeping `warp-egress-docker-guard.service` active.
 
-Upgrade backups are mode `0700` and can contain configuration and WARP profile material. They must be handled as sensitive administrative data. Remote upgrades should be pinned to a reviewed immutable tag with `--ref vX.Y.Z`.
+`/var/backups/warp-egress-gateway`, each upgrade directory, and its `rootfs` are explicitly `root:root` mode `0700`. `manifest.env` and Native `upgrade-config.env` are mode `0600`. Backups can contain configuration and WARP profile material, so they must be handled as sensitive administrative data. Remote upgrades should be pinned to a reviewed immutable tag with `--ref vX.Y.Z`.

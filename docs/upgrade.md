@@ -88,7 +88,11 @@ Backups are stored under:
 /var/backups/warp-egress-gateway/upgrade-YYYYMMDD-HHMMSS/
 ```
 
-The directory is root-only and contains `manifest.env` plus the deployment-specific rollback data.
+`/var/backups/warp-egress-gateway`, each timestamped `upgrade-*` directory, and
+its `rootfs` directory are explicitly created as `root:root` mode `0700`.
+`manifest.env` and Native `upgrade-config.env` are mode `0600`. The backup
+therefore contains sensitive configuration and WARP material without exposing
+it to group or other users.
 
 Native backups include the installed configuration, WARP profile, management scripts, systemd units, routing/sysctl metadata, and journald retention configuration.
 

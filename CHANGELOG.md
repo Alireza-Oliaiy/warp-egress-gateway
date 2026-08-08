@@ -2,6 +2,9 @@
 
 ## 0.4.0 - 2026-08-08
 
+- Fixed qualification-discovered backup permissions: every timestamped upgrade
+  backup and `rootfs` directory is now explicitly `root:root` mode `0700`,
+  while manifests and Native upgrade configuration copies are mode `0600`.
 - Sanitized public examples to use documentation-only network ranges and removed
   internal planning artifacts.
 - Minimized release archives by excluding contributor, CI, internal planning,

@@ -94,4 +94,60 @@ grep -q 'warp-gateway-upgrade' "${ROOT}/docker/setup.sh" || {
   echo "Docker setup must install the remote upgrade helper" >&2; exit 1;
 }
 
+# Exercise the same backup-layout helper used by both Native and Docker upgrades.
+# This reproduces the production failure where install created an implicit
+# timestamped parent with the umask-derived mode instead of mode 0700.
+grep -q '^create_backup_layout()' "${ROOT}/upgrade.sh" || {
+  echo "Upgrade must explicitly create the timestamped backup directory." >&2; exit 1;
+}
+backup_test_dir=$(mktemp -d)
+trap 'rm -rf "${unit_dir}" "${backup_test_dir}"' EXIT
+backup_helper="${backup_test_dir}/backup-helper.sh"
+awk '
+  /^create_backup_layout\(\)/ { capture=1 }
+  capture { print }
+  capture && /^}$/ { exit }
+' "${ROOT}/upgrade.sh" >"${backup_helper}"
+manifest_helper="${backup_test_dir}/manifest-helper.sh"
+awk '
+  /^write_manifest\(\)/ { capture=1 }
+  capture { print }
+  capture && /^}$/ { exit }
+' "${ROOT}/upgrade.sh" >"${manifest_helper}"
+
+if install -d -m 700 "${backup_test_dir}/mode-probe" 2>/dev/null; then
+  BACKUP_ROOT="${backup_test_dir}/backups"
+  BACKUP_DIR="${BACKUP_ROOT}/upgrade-qualification"
+  # shellcheck disable=SC1090
+  source "${backup_helper}"
+  create_backup_layout
+  # shellcheck disable=SC2034 # consumed by the extracted write_manifest helper
+  MODE=native
+  # shellcheck disable=SC2034 # consumed by the extracted write_manifest helper
+  TARGET_VERSION=0.4.0
+  # shellcheck disable=SC1090
+  source "${manifest_helper}"
+  write_manifest 0.3.3
+  printf 'MANAGE_TRANSIT_ADDRESS="false"\n' >"${backup_test_dir}/source-config.env"
+  cp -a "${backup_test_dir}/source-config.env" "${BACKUP_DIR}/upgrade-config.env"
+  chmod 600 "${BACKUP_DIR}/upgrade-config.env"
+  for path_mode in \
+    "${BACKUP_ROOT}:700" \
+    "${BACKUP_DIR}:700" \
+    "${BACKUP_DIR}/rootfs:700" \
+    "${BACKUP_DIR}/manifest.env:600" \
+    "${BACKUP_DIR}/upgrade-config.env:600"; do
+    path=${path_mode%:*}
+    expected_mode=${path_mode##*:}
+    [[ $(stat -c '%a' "${path}") == "${expected_mode}" ]] || {
+      echo "Backup permission regression: ${path} is not ${expected_mode}." >&2; exit 1;
+    }
+  done
+  [[ $(stat -c '%u' "${BACKUP_ROOT}") == $(id -u) ]] || {
+    echo "Backup root ownership does not match the effective upgrader user." >&2; exit 1;
+  }
+else
+  echo "Backup permission filesystem behavior skipped: local filesystem cannot apply Unix modes."
+fi
+
 echo "Managed upgrade and rollback safety checks passed."

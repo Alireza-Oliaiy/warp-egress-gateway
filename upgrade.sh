@@ -109,6 +109,20 @@ copy_rootfs_path() {
   cp -a --parents "${path}" "${BACKUP_DIR}/rootfs"
 }
 
+create_backup_layout() {
+  # Do not rely on install creating BACKUP_DIR as an implicit parent: such
+  # parents inherit the process umask and can expose backup contents.
+  install -d -m 700 "${BACKUP_ROOT}"
+  install -d -m 700 "${BACKUP_DIR}"
+  install -d -m 700 "${BACKUP_DIR}/rootfs"
+  # The upgrader has already required root. Keeping this conditional lets the
+  # filesystem-behavior regression test exercise the helper unprivileged.
+  if [[ ${EUID} -eq 0 ]]; then
+    chown root:root "${BACKUP_ROOT}" "${BACKUP_DIR}" "${BACKUP_DIR}/rootfs"
+  fi
+  chmod 700 "${BACKUP_ROOT}" "${BACKUP_DIR}" "${BACKUP_DIR}/rootfs"
+}
+
 write_manifest() {
   local current_version=$1
   cat >"${BACKUP_DIR}/manifest.env" <<MANIFEST
@@ -170,7 +184,6 @@ upgrade_native() {
   profile="/etc/wireguard/${WARP_IF:-warp0}.conf"
   [[ -r ${profile} ]] || die "Existing WARP profile not found: ${profile}"
 
-  install -d -m 700 "${BACKUP_DIR}/rootfs"
   write_manifest "${current_version}"
   for path in \
     /etc/warp-egress-gateway \
@@ -272,12 +285,12 @@ upgrade_docker() {
   previous="${parent}/${base}.preupgrade-${TIMESTAMP}"
   current_version=$(installed_version /etc/warp-egress-gateway-docker/VERSION)
 
-  install -d -m 700 "${BACKUP_DIR}/rootfs"
   write_manifest "${current_version}"
   cat >>"${BACKUP_DIR}/manifest.env" <<MANIFEST
 DOCKER_PROJECT_ROOT="${project_root}"
 DOCKER_PREVIOUS_ROOT="${previous}"
 MANIFEST
+  chmod 600 "${BACKUP_DIR}/manifest.env"
   for path in \
     /etc/warp-egress-gateway-docker \
     /usr/local/sbin/warp-egress-docker-guard-apply \
@@ -345,8 +358,8 @@ if [[ ${DRY_RUN} == true ]]; then
   exit 0
 fi
 
-install -d -m 700 "${BACKUP_ROOT}"
 confirm_upgrade
+create_backup_layout
 
 case ${MODE} in
   native) upgrade_native ;;
