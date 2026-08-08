@@ -1,7 +1,8 @@
 [Unit]
 Description=WARP Egress Gateway persistent kill switch and NAT
 DefaultDependencies=no
-After=local-fs.target
+Requires=systemd-sysctl.service
+After=local-fs.target systemd-sysctl.service
 Wants=network-pre.target
 Before=network-pre.target warp-gateway.service shutdown.target
 Conflicts=shutdown.target

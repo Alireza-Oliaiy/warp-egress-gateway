@@ -6,6 +6,8 @@
   fail-closed guarantee: the Native firewall and Docker host guard now install
   before network-pre, with forwarding disabled until their nftables guard is
   active.
+- Ordered both early guards after `systemd-sysctl.service` so persistent
+  forwarding-disabled policy is applied before each guard enables forwarding.
 - Fixed qualification-discovered false monitor failures: a stale WireGuard
   handshake is now `STATUS=WARN` when the active WARP trace proves the
   dataplane is working; actual WARP or safety-check failures remain `FAIL`.

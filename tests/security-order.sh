@@ -78,6 +78,8 @@ def require(values, section, key, value, label):
 for values, label in ((native, 'Native firewall guard'), (docker, 'Docker host guard')):
     require(values, 'Unit', 'DefaultDependencies', 'no', label)
     require(values, 'Unit', 'After', 'local-fs.target', label)
+    require(values, 'Unit', 'Requires', 'systemd-sysctl.service', label)
+    require(values, 'Unit', 'After', 'systemd-sysctl.service', label)
     require(values, 'Unit', 'Before', 'network-pre.target', label)
     require(values, 'Unit', 'Wants', 'network-pre.target', label)
     require(values, 'Unit', 'Before', 'shutdown.target', label)
@@ -92,7 +94,8 @@ require(gateway, 'Unit', 'Requires', 'warp-gateway-firewall.service', 'Policy-ro
 require(gateway, 'Unit', 'Requires', 'wg-quick@warp0.service', 'Policy-routing service')
 
 edges = {
-    'local-fs.target': {'firewall', 'docker-guard'},
+    'local-fs.target': {'systemd-sysctl.service'},
+    'systemd-sysctl.service': {'firewall', 'docker-guard'},
     'firewall': {'network-pre.target', 'wg-quick@warp0.service', 'warp-gateway.service'},
     'network-pre.target': {'wg-quick@warp0.service', 'docker.service'},
     'wg-quick@warp0.service': {'warp-gateway.service'},

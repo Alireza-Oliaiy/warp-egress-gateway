@@ -39,11 +39,12 @@ Only traffic sourced from the WARP interface address and traffic entering `TRANS
 
 ## Boot ordering
 
-1. Persistent forwarding defaults to disabled during early boot.
+1. `systemd-sysctl.service` applies persistent forwarding-disabled settings.
 2. The independent firewall guard starts from `sysinit.target`, after local
    filesystems but before `network-pre.target`; nftables accepts the interface
    names as string matches even before those links exist.
-3. The guard installs its nftables transaction, then enables IPv4 forwarding.
+3. The guard requires and starts after `systemd-sysctl.service`, installs its
+   nftables transaction, then enables IPv4 forwarding.
 4. `wg-quick@WARP_IF` requires and starts after the guard; policy routing
    requires and starts after both.
 5. Health and monitor timers begin after the protected data path is available.
