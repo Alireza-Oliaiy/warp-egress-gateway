@@ -27,6 +27,13 @@ Firewall lifetime is intentionally separate from tunnel lifetime. The project do
 
 Only the explicit uninstall flow removes the nftables table.
 
+Ordinary runtime recovery never removes or replaces the kill switch. Before a
+policy-only repair, the gateway verifies the WARP interface, WireGuard state,
+WARP IPv4 address, and the `WARP_KILL_SWITCH` nftables rule. A missing safety
+rule blocks repair and leaves the path failed closed. Repair only replaces the
+configured WARP-table default and the two project-owned rule priorities; it
+does not create or change the host main-table default route.
+
 At boot, IPv4 forwarding defaults to disabled. The Native firewall and Docker
 host guard require and start after `systemd-sysctl.service`, then run as early
 `sysinit.target` services ordered before
@@ -34,6 +41,11 @@ host guard require and start after `systemd-sysctl.service`, then run as early
 enables forwarding. WireGuard, policy routing, and Docker then start only in
 the protected order. This prevents a transient transit-to-uplink forwarding
 path during boot or a guard-install failure.
+
+`AUTO_RECOVER=false` disables disruptive tunnel restart, but it does not
+disable deterministic restoration of project-owned policy routing. This
+exception is safe because routing is restored only behind the already-active
+kill switch and is verified before a WARP dataplane probe is accepted.
 
 ## Dedicated host recommendation
 

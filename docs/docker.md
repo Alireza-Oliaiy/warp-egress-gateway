@@ -57,7 +57,12 @@ docker inspect warp-egress-gateway --format '{{.State.Health.Status}}'
 journalctl CONTAINER_TAG=warp-egress-gateway --since "7 days ago" --no-pager
 ```
 
-The container writes one structured passive monitor sample per minute. `AUTO_RECOVER=false` is the default in version 0.3.2 so incident evidence is retained before any optional tunnel restart.
+The container writes one structured passive monitor sample per minute.
+`AUTO_RECOVER=false` remains the default so incident evidence is retained
+before any optional tunnel restart. Exact policy-routing drift is repaired
+separately after the container verifies WireGuard and the kill switch; this
+lightweight action never restarts the tunnel and remains enabled with
+`AUTO_RECOVER=false`.
 
 ## Stop and remove
 

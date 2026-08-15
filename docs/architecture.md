@@ -37,6 +37,24 @@ UPLINK_IF -> UPLINK_GATEWAY
 
 Only traffic sourced from the WARP interface address and traffic entering `TRANSIT_IF` uses the WARP table.
 
+## Runtime policy integrity
+
+The routing service is a oneshot because the kernel owns the resulting rules;
+an `active` systemd state therefore proves that setup ran, not that those
+runtime objects still exist. The periodic health path validates all of the
+project-owned objects independently:
+
+- `SOURCE_RULE_PRIORITY` selects the current `WARP_IF` IPv4 source and the
+  configured table.
+- `INGRESS_RULE_PRIORITY` selects `TRANSIT_IF` and the configured table.
+- The configured table contains exactly one `default dev WARP_IF` route.
+
+If a host network manager reconciles the rules away, recovery first verifies
+the WireGuard interface and nftables kill switch, reapplies only this routing
+state, verifies it again, then runs the `warp=on` trace. The main routing table,
+WireGuard interface, and firewall transaction are not changed by policy-only
+repair.
+
 ## Boot ordering
 
 1. `systemd-sysctl.service` applies persistent forwarding-disabled settings.
@@ -48,6 +66,11 @@ Only traffic sourced from the WARP interface address and traffic entering `TRANS
 4. `wg-quick@WARP_IF` requires and starts after the guard; policy routing
    requires and starts after both.
 5. Health and monitor timers begin after the protected data path is available.
+
+After boot, the timer-based integrity check is deliberately independent of a
+particular network-manager lifecycle hook. It repairs project-owned routing
+within the configured health interval after network service restart or
+reconfiguration, without modifying that service globally.
 
 The guard uses `DefaultDependencies=no`, explicitly participates in
 `network-pre.target`, and remains loaded on stop. This ordering prevents the

@@ -80,10 +80,38 @@ log "Docker WARP gateway is active."
 interval=${MONITOR_INTERVAL:-60}
 while true; do
   sleep "${interval}" & wait $!
-  if ! /app/bin/monitor.sh; then
-    log "Passive monitor reported failure; kill switch remains active."
-    if [[ ${AUTO_RECOVER:-false} == true ]]; then
-      log "AUTO_RECOVER=true; attempting recovery."
+  if ! monitor_sample=$(/app/bin/monitor.sh); then
+    log "Passive monitor could not produce a sample; configuration or monitor code requires attention."
+    continue
+  fi
+  printf '%s\n' "${monitor_sample}"
+  [[ ${monitor_sample} == STATUS=FAIL* ]] || continue
+
+  log "Passive monitor reported failure; kill switch remains active."
+  route_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^route=/) {sub(/^route=/,"",$i); print $i}}' <<<"${monitor_sample}")
+  if [[ ${route_state} != ok ]]; then
+    log "Policy-routing drift detected; attempting policy-only repair."
+    if /app/scripts/route-repair.sh; then
+      if repaired_sample=$(/app/bin/monitor.sh); then
+        printf '%s\n' "${repaired_sample}"
+        if [[ ${repaired_sample} != STATUS=FAIL* ]]; then
+          log "Policy-only recovery restored the WARP path."
+          continue
+        fi
+        monitor_sample=${repaired_sample}
+      fi
+    fi
+  fi
+
+  if [[ ${AUTO_RECOVER:-false} == true ]]; then
+    wg_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^wg=/) {sub(/^wg=/,"",$i); print $i}}' <<<"${monitor_sample}")
+    direct_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^direct=/) {sub(/^direct=/,"",$i); print $i}}' <<<"${monitor_sample}")
+    warp_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^warp=/) {sub(/^warp=/,"",$i); print $i}}' <<<"${monitor_sample}")
+    route_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^route=/) {sub(/^route=/,"",$i); print $i}}' <<<"${monitor_sample}")
+    nft_state=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^nft=/) {sub(/^nft=/,"",$i); print $i}}' <<<"${monitor_sample}")
+    if [[ ${direct_state} == ok && ${route_state} == ok && ${nft_state} == ok ]] &&
+      [[ ${wg_state} != up || ${warp_state} != on ]]; then
+      log "AUTO_RECOVER=true and tunnel evidence failed; restarting the WARP tunnel."
       start_tunnel || true
     fi
   fi

@@ -42,7 +42,7 @@ The record distinguishes:
 - Direct/uplink Internet reachability.
 - WARP egress reachability and `warp=on`.
 - Upstream firewall/router reachability when an exact peer IP is available.
-- Policy-routing table health.
+- Exact source/ingress policy-rule and WARP-table health.
 - nftables gateway table health.
 
 `STATUS=FAIL` means a required dataplane or safety check failed: interface,
@@ -51,6 +51,17 @@ reachability. `STATUS=WARN` means the active WARP probe is healthy but the
 latest WireGuard handshake is stale or absent. Handshake age remains useful
 telemetry, but it is not stronger evidence than a successful current WARP
 trace. `warp-gateway failures` intentionally shows only `STATUS=FAIL` records.
+
+The `route` field is `ok` only when both configured priorities select the
+expected WARP source/transit interface and table, and that table has
+`default dev WARP_IF`. Failure values identify the drift layer, for example
+`source_rule_missing`, `ingress_rule_mismatch`, or
+`default_route_missing`.
+
+Probe failures are health data, not monitor process errors. A curl timeout is
+recorded as `STATUS=FAIL`, `warp=fail`, and `warp_rc=28`; the sample process
+still exits normally after emitting/logging the complete record. Nonzero
+monitor process exit is reserved for configuration or internal errors.
 
 Review the last seven days:
 
@@ -79,7 +90,11 @@ journalctl -t warp-monitor --since "7 days ago" --no-pager -o short-iso | grep '
 
 ## Docker monitor
 
-The Docker edition runs the same style of structured sample from the gateway container every `MONITOR_INTERVAL` seconds. The Compose service uses the `journald` logging driver, so the host seven-day journal retention applies to the container records as well.
+The Docker edition runs the same shared structured sample from the gateway
+container every `MONITOR_INTERVAL` seconds. The Compose service uses the
+`journald` logging driver, so the host seven-day journal retention applies to
+the container records as well. The container loop parses `STATUS`; it does not
+depend on a health-failure exit code from the passive monitor.
 
 Examples:
 
@@ -99,3 +114,10 @@ AUTO_RECOVER="true"
 ```
 
 The fail-closed kill switch remains independent of this setting.
+
+Starting in `0.4.1`, exact policy-routing drift is the deliberately narrow
+exception to `AUTO_RECOVER=false`. Native health checks and the Docker loop may
+reapply only project-owned routing after verifying WireGuard and the kill
+switch. A full WireGuard restart still requires `AUTO_RECOVER=true`, healthy
+direct/safety/routing state, and evidence that the WARP tunnel/dataplane itself
+failed.

@@ -8,7 +8,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.4.0: add managed upgrade and release lifecycle" `
+  -CommitMessage "Release v0.4.1: recover policy routing after network reconciliation" `
   -CreateReleaseTag
 ```
 

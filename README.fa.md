@@ -20,6 +20,11 @@
 
 از نسخه `0.3.3` پروفایل‌های dual-stack تولیدشده توسط `wgcf` قبل از اجرای `wg-quick` برای مسیر IPv4-only این پروژه نرمال می‌شوند؛ بنابراین خاموش بودن IPv6 روی Host باعث Fail شدن `warp0` نمی‌شود. از نسخه `0.4.0` چرخه رسمی Backup، Upgrade و Rollback نیز برای Native و Docker اضافه شده است.
 
+نسخه `0.4.1` تمام Ruleها و جدول Policy Routing متعلق به پروژه را دقیق بررسی
+می‌کند و اگر سرویس شبکه Host آن‌ها را حذف یا تغییر دهد، فقط همان Routing را
+بدون Restart غیرضروری WireGuard بازیابی می‌کند. این بازیابی تنها وقتی انجام
+می‌شود که Interface مربوط به WARP و Kill Switch مبتنی بر nftables سالم باشند.
+
 > این پروژه وابسته به Cloudflare نیست. ابزار `wgcf` غیررسمی است. قبل از ثبت حساب، شرایط Cloudflare را بررسی کن.
 
 ## انتشار از Windows روی GitHub
@@ -32,7 +37,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.4.0: add managed upgrade and release lifecycle" `
+  -CommitMessage "Release v0.4.1: recover policy routing after network reconciliation" `
   -CreateReleaseTag
 ```
 
@@ -61,7 +66,7 @@ sudo bash setup.sh
 از نسخه `0.4.0` روی نصب Native دستور رسمی Upgrade نصب می‌شود؛ بدون `--ref` بالاترین Release Tag با قالب `vX.Y.Z` انتخاب می‌شود:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.0
+sudo warp-gateway upgrade --ref v0.4.1
 ```
 
 برای بررسی بدون اعمال تغییر:
@@ -152,6 +157,10 @@ sudo warp-gateway failures
 ```
 
 در نسخه `0.3.2` مقدار `AUTO_RECOVER` به‌صورت پیش‌فرض `false` است تا قبل از Restart خودکار، شواهد قطعی برای Root Cause باقی بماند. جزئیات بیشتر در [راهنمای مانیتورینگ](docs/monitoring.md) آمده است.
+
+در نسخه `0.4.1` حتی با `AUTO_RECOVER=false`، بازیابی محدود و قطعی Policy
+Routing فعال می‌ماند؛ Restart کامل Tunnel همچنان فقط با
+`AUTO_RECOVER=true` و شواهد خرابی خود Tunnel مجاز است.
 
 ## بخش Docker
 

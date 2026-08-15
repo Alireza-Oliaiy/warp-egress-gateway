@@ -36,7 +36,7 @@ sudo warp-gateway upgrade
 You can also pin a specific reviewed release tag:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.0
+sudo warp-gateway upgrade --ref v0.4.1
 ```
 
 Preview without changing the host:
@@ -48,10 +48,10 @@ sudo warp-gateway upgrade --dry-run
 Non-interactive maintenance window:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.0 --yes
+sudo warp-gateway upgrade --ref v0.4.1 --yes
 ```
 
-Before host changes, the bootstrap resolves the requested tag to one exact Git object, checks out that object detached, and requires the downloaded `VERSION` to be the same value as the requested tag without the `v` prefix. For example, a requested tag `v0.4.0` must contain exactly `VERSION=0.4.0`. A missing, malformed, or mismatched `VERSION`, an unresolvable ref, or a checkout that does not match the resolved object stops the upgrade before the backup or service-maintenance phase. There is no fallback to another ref.
+Before host changes, the bootstrap resolves the requested tag to one exact Git object, checks out that object detached, and requires the downloaded `VERSION` to be the same value as the requested tag without the `v` prefix. For example, a requested tag `v0.4.1` must contain exactly `VERSION=0.4.1`. A missing, malformed, or mismatched `VERSION`, an unresolvable ref, or a checkout that does not match the resolved object stops the upgrade before the backup or service-maintenance phase. There is no fallback to another ref.
 
 `--ref main` remains an explicit unreleased-code path. It is resolved to an exact branch object and still requires a valid semantic `VERSION`; use it only for intentional non-production testing.
 
@@ -73,7 +73,7 @@ The upgrader reuses the existing `/etc/wireguard/<WARP_IF>.conf`; it does not re
 Prefer the installed remote bootstrap after `0.4.0` so the live Compose source tree is not modified before the backup is created:
 
 ```bash
-sudo warp-gateway-upgrade --mode docker --ref v0.4.0
+sudo warp-gateway-upgrade --mode docker --ref v0.4.1
 ```
 
 A separate, newly cloned release checkout can also run `sudo bash upgrade.sh --mode docker`. Do not `git pull` the live Docker project tree before the upgrader has captured its rollback copy.
@@ -103,6 +103,16 @@ Docker upgrades retain the previous project tree beside the live project and rec
 The upgrader preserves the existing deployment settings. During Native upgrade it forces `MANAGE_TRANSIT_ADDRESS=false` in the upgrade input because the transit address already exists; this prevents a software upgrade from unnecessarily reapplying Netplan.
 
 New configuration keys may use release defaults until an operator explicitly sets them.
+
+## v0.4.1 routing recovery behavior
+
+The `0.4.1` runtime validates live policy rules instead of relying on the
+oneshot routing service's active state. After upgrade, the periodic Native
+healthcheck and Docker monitor loop can restore only the project-owned rules
+and WARP-table default if host network reconciliation removes them. This
+policy-only action is permitted with `AUTO_RECOVER=false`; it verifies the
+WireGuard interface and kill switch first and never changes the main default
+route. Full tunnel restart remains controlled by `AUTO_RECOVER=true`.
 
 ## Post-upgrade validation
 

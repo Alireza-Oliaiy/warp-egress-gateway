@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.1 - 2026-08-15
+
+- Added exact runtime policy-routing validation for both configured rule
+  priorities, WARP source address, transit ingress interface, lookup table,
+  and the WARP-table default route.
+- Added fail-closed, idempotent policy-only recovery after network-manager
+  reconciliation removes or changes project-owned rules. The periodic Native
+  healthcheck and Docker monitor loop verify the kill switch and WireGuard
+  interface before reapplying routing, without changing the main default route
+  or unnecessarily restarting WireGuard.
+- Clarified `AUTO_RECOVER=false`: deterministic policy-only restoration remains
+  enabled, while full tunnel restart still requires `AUTO_RECOVER=true` and
+  tunnel-specific failure evidence.
+- Fixed passive monitor probe handling so curl timeouts and other expected
+  command failures produce structured `STATUS=FAIL` telemetry, including the
+  probe return code, instead of terminating the monitor process.
+- Split Native health failures into WireGuard, policy-routing, kill-switch,
+  direct-uplink, and WARP-dataplane states so recovery targets the failed layer.
+
 ## 0.4.0 - 2026-08-08
 
 - Corrected a reboot-qualification ordering gap before it could prove a

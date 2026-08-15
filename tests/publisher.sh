@@ -10,7 +10,7 @@ renormalize=$(grep -nF 'Invoke-Git -GitArguments @("add", "--renormalize", ".")'
   exit 1
 }
 
-for test in syntax.sh whitespace.sh security-order.sh monitoring.sh profile-ipv4.sh upgrade.sh docs.sh release-metadata.sh publisher.sh package.sh; do
+for test in syntax.sh whitespace.sh security-order.sh policy-recovery.sh monitoring.sh profile-ipv4.sh upgrade.sh docs.sh release-metadata.sh publisher.sh package.sh; do
   grep -q "tests/${test}" "${PUBLISHER}" || {
     echo "Windows publisher must run tests/${test}" >&2
     exit 1

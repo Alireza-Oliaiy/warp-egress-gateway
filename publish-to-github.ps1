@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryUrl = "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git",
-    [string]$CommitMessage = "Release v0.4.0: add managed upgrade and release lifecycle",
+    [string]$CommitMessage = "Release v0.4.1: recover policy routing after network reconciliation",
     [string]$Branch = "main",
     [switch]$CreateReleaseTag,
     [string]$WorkDirectory = (Join-Path $env:TEMP "warp-egress-gateway-publish")
@@ -108,6 +108,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Whitespace/EOF test failed." }
         & bash tests/security-order.sh
         if ($LASTEXITCODE -ne 0) { throw "Security test failed." }
+        & bash tests/policy-recovery.sh
+        if ($LASTEXITCODE -ne 0) { throw "Policy recovery test failed." }
         & bash tests/monitoring.sh
         if ($LASTEXITCODE -ne 0) { throw "Monitoring test failed." }
         & bash tests/profile-ipv4.sh

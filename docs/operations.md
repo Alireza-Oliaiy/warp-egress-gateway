@@ -19,6 +19,12 @@ The firewall guard is an early-boot safety dependency. Do not disable or stop
 `warp-gateway-firewall.service` to troubleshoot routing; its stop action keeps
 the rules loaded intentionally.
 
+`warp-gateway health` validates the live rule priorities and routing table; it
+does not treat `warp-gateway.service active` as runtime proof. If only the
+project-owned policy rules drifted, the command repairs them behind the active
+kill switch and verifies `warp=on` without restarting WireGuard. The enabled
+health timer performs the same check every minute.
+
 ## Native maintenance commands
 
 Restart the managed path:
@@ -77,6 +83,8 @@ sudo journalctl -u wg-quick@warp0.service -u warp-gateway.service --since '2 hou
 The default monitor is passive and `AUTO_RECOVER=false`, so failure evidence is not intentionally erased by an automatic restart loop.
 `STATUS=WARN` is telemetry (for example, a stale handshake with a successful
 `warp=on` trace); `warp-gateway failures` remains limited to `STATUS=FAIL`.
+Policy-only routing restoration is still enabled because it is deterministic
+and does not restart the tunnel; full tunnel restart remains disabled.
 
 ## Backup retention
 

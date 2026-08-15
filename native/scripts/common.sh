@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 PROJECT_NAME="warp-egress-gateway"
-CONFIG_DIR="/etc/${PROJECT_NAME}"
-CONFIG_FILE="${CONFIG_DIR}/warp-gateway.env"
+CONFIG_DIR=${WARP_GATEWAY_CONFIG_DIR:-/etc/${PROJECT_NAME}}
+CONFIG_FILE=${WARP_GATEWAY_CONFIG_FILE:-${CONFIG_DIR}/warp-gateway.env}
 # These values are consumed by the scripts that source this library.
 # shellcheck disable=SC2034
 STATE_DIR="/var/lib/${PROJECT_NAME}"

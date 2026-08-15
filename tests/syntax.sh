@@ -20,12 +20,17 @@ required=(
   native/config/warp-gateway.env.example
   native/systemd/warp-gateway-firewall.service
   native/scripts/monitor.sh
+  native/scripts/monitor-lib.sh
+  native/scripts/healthcheck-lib.sh
+  native/scripts/routing.sh
+  native/scripts/route-repair.sh
   native/systemd/warp-monitor.service
   native/systemd/warp-monitor.timer
   docker/bin/monitor.sh
   shared/journald/10-warp-egress-gateway-retention.conf
   shared/profile/normalize-warp-profile-ipv4.sh
   tests/profile-ipv4.sh
+  tests/policy-recovery.sh
   tests/run-all.sh
   tests/whitespace.sh
   docs/monitoring.md

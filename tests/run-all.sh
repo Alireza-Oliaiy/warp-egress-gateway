@@ -20,6 +20,7 @@ tests=(
   syntax.sh
   whitespace.sh
   security-order.sh
+  policy-recovery.sh
   monitoring.sh
   profile-ipv4.sh
   upgrade.sh

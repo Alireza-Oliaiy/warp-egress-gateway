@@ -24,6 +24,22 @@ sudo conntrack -L | head
 
 Verify the actual source arriving from the firewall matches `TRUSTED_SOURCE_CIDR`.
 
+If `warp0` and the WARP table default remain present but either configured
+policy rule disappeared, a host network service may have reconciled runtime
+rules. Run:
+
+```bash
+sudo warp-gateway monitor
+sudo warp-gateway health
+sudo ip -4 rule show
+sudo ip -4 route show table 100
+```
+
+The monitor reports the exact `route=` drift state. The health command verifies
+the kill switch, reapplies only the two rules and WARP-table default, verifies
+them, and then requires `warp=on`. Do not restart WireGuard merely to repair
+this routing-only condition.
+
 ## Kill-switch counter increases
 
 Linux selected an egress other than WARP for transit traffic. Check:
@@ -71,6 +87,11 @@ sudo journalctl -u warp-gateway-healthcheck.service -n 100 --no-pager
 ```
 
 The configured trace URL must return a line exactly equal to `warp=on`.
+
+Health output distinguishes `wireguard`, `policy_routing`, `kill_switch`,
+`direct_uplink`, and `warp_dataplane`. Only tunnel-specific failure may trigger
+a WireGuard restart when `AUTO_RECOVER=true`; policy drift uses the lightweight
+repair path even when automatic tunnel recovery is disabled.
 
 
 ## Review an intermittent outage from the last week
