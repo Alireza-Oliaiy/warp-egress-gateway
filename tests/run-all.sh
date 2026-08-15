@@ -20,8 +20,10 @@ tests=(
   syntax.sh
   whitespace.sh
   security-order.sh
+  runtime-state.sh
   policy-recovery.sh
   monitoring.sh
+  helper.sh
   profile-ipv4.sh
   upgrade.sh
   docs.sh

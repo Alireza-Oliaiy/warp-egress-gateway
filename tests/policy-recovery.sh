@@ -4,12 +4,22 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 ROUTING_LIB="${ROOT}/native/scripts/routing.sh"
 HEALTHCHECK_LIB="${ROOT}/native/scripts/healthcheck-lib.sh"
+ROUTE_UP="${ROOT}/native/scripts/route-up.sh"
+ROUTE_DOWN="${ROOT}/native/scripts/route-down.sh"
 [[ -r ${ROUTING_LIB} ]] || {
   echo "Routing validation library is missing: ${ROUTING_LIB}" >&2
   exit 1
 }
 [[ -r ${HEALTHCHECK_LIB} ]] || {
   echo "Healthcheck behavior library is missing: ${HEALTHCHECK_LIB}" >&2
+  exit 1
+}
+grep -q 'policy_routing_activate' "${ROUTE_UP}" || {
+  echo "Route activation must enter through the shared-lock wrapper." >&2
+  exit 1
+}
+grep -q 'policy_routing_remove' "${ROUTE_DOWN}" || {
+  echo "Route removal must enter through the shared-lock wrapper." >&2
   exit 1
 }
 
@@ -51,15 +61,17 @@ elif [[ $* == '-4 route replace default dev '* ]]; then
   table_id=${8}
   [[ -n ${table_id} ]]
   printf 'default dev %s\n' "${warp_if}" >"${MOCK_ROUTE_FILE}"
+elif [[ $* == '-4 route flush table '* ]]; then
+  : >"${MOCK_ROUTE_FILE}"
 elif [[ $* == '-4 route flush cache' ]]; then
   :
 elif [[ $* == 'link show '* ]]; then
   [[ ${MOCK_WG_UP:-true} == true ]]
 elif [[ $* == '-4 -o address show dev '* ]]; then
-  [[ ${MOCK_WG_UP:-true} == true ]] || exit 1
   if [[ ${6} == eth0 ]]; then
     printf '2: eth0    inet 203.0.113.10/24 scope global eth0\n'
   else
+    [[ ${MOCK_WG_UP:-true} == true ]] || exit 1
     printf '7: %s    inet %s/32 scope global %s\n' "${6}" "${MOCK_WARP_IPV4}" "${6}"
   fi
 else
@@ -127,6 +139,22 @@ cat >"${MOCK_BIN}/sleep" <<'MOCK_SLEEP'
 exit 0
 MOCK_SLEEP
 
+cat >"${MOCK_BIN}/flock" <<'MOCK_FLOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\n' "$*" >>"${MOCK_FLOCK_LOG}"
+if [[ $* == '-x -w 5 '* ]]; then
+  if [[ ${MOCK_FLOCK_CREATE_INTENT:-false} == true ]]; then
+    printf 'valid\n' >"${MOCK_INTENT_STATE_FILE}"
+  fi
+  [[ ${MOCK_FLOCK_BUSY:-false} != true ]]
+elif [[ $* == '-u '* ]]; then
+  exit 0
+else
+  exit 64
+fi
+MOCK_FLOCK
+
 chmod +x "${MOCK_BIN}"/*
 PATH="${MOCK_BIN}:${PATH}"
 export PATH MOCK_RULES_FILE MOCK_ROUTE_FILE MOCK_IP_LOG
@@ -134,8 +162,18 @@ export MOCK_WG_UP=true MOCK_NFT_ACTIVE=true MOCK_WARP_IPV4=192.0.2.2
 export MOCK_NFT_MODE=drop
 MOCK_SYSTEMCTL_LOG="${TEST_DIR}/systemctl.log"
 MOCK_TUNNEL_RECOVERED_FILE="${TEST_DIR}/tunnel-recovered"
-export MOCK_SYSTEMCTL_LOG MOCK_TUNNEL_RECOVERED_FILE
+MOCK_FLOCK_LOG="${TEST_DIR}/flock.log"
+MOCK_INTENT_STATE_FILE="${TEST_DIR}/intent-state"
+export MOCK_SYSTEMCTL_LOG MOCK_TUNNEL_RECOVERED_FILE MOCK_FLOCK_LOG
+export MOCK_INTENT_STATE_FILE
 : >"${MOCK_SYSTEMCTL_LOG}"
+: >"${MOCK_FLOCK_LOG}"
+
+export WARP_RUNTIME_STATE_TEST_MODE=1
+export WARP_RUNTIME_STATE_TEST_DIR="${TEST_DIR}/runtime"
+export WARP_RUNTIME_STATE_TEST_ASSUME_SAFE=1
+export WARP_RUNTIME_STATE_TEST_FLOCK_BIN="${MOCK_BIN}/flock"
+export WARP_GATEWAY_PYTHON3=${WARP_GATEWAY_PYTHON3:-python3}
 
 WARP_IF=warp0
 TRANSIT_IF=eth1
@@ -151,6 +189,14 @@ export SOURCE_RULE_PRIORITY INGRESS_RULE_PRIORITY NFT_TABLE
 source "${ROUTING_LIB}"
 # shellcheck source=../native/scripts/healthcheck-lib.sh
 source "${HEALTHCHECK_LIB}"
+
+intentional_disconnect_state() {
+  if [[ -r ${MOCK_INTENT_STATE_FILE} ]]; then
+    cat "${MOCK_INTENT_STATE_FILE}"
+  else
+    printf 'absent\n'
+  fi
+}
 
 set_rules() {
   printf '%s\n' "$@" >"${MOCK_RULES_FILE}"
@@ -363,5 +409,102 @@ rm -f "${MOCK_TUNNEL_RECOVERED_FILE}"
 sample=$(run_health_success)
 [[ ${sample} == *'recovery=tunnel'* && ${sample} == *'warp=on'* ]]
 [[ $(grep -c '^restart wg-quick@warp0.service$' "${MOCK_SYSTEMCTL_LOG}") -eq 1 ]]
+
+# All route removal uses the same lock and remains project-scoped.
+set_healthy
+: >"${MOCK_IP_LOG}"
+: >"${MOCK_FLOCK_LOG}"
+policy_routing_remove
+assert_status source_rule_missing
+grep -q '^-4 route flush table 100$' "${MOCK_IP_LOG}"
+grep -q '^-4 rule del pref 100$' "${MOCK_IP_LOG}"
+grep -q '^-4 rule del pref 110$' "${MOCK_IP_LOG}"
+if grep -qE 'route (del|flush) (default|table main)|nft' "${MOCK_IP_LOG}"; then
+  echo "Route removal escaped project-owned routing scope." >&2
+  exit 1
+fi
+grep -q '^-x -w 5 ' "${MOCK_FLOCK_LOG}"
+
+# Intent is re-read under the lock and blocks route activation and repair.
+printf 'valid\n' >"${MOCK_INTENT_STATE_FILE}"
+set_rules
+set_routes
+: >"${MOCK_IP_LOG}"
+: >"${MOCK_FLOCK_LOG}"
+if policy_routing_activate; then
+  [[ ${POLICY_ROUTING_OUTCOME} == intentionally_disconnected ]]
+else
+  echo "Valid intent should make route activation an intentional no-op." >&2
+  exit 1
+fi
+[[ $(grep -c 'route replace\|rule add' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+if policy_routing_repair; then
+  echo "Policy repair must refuse intentional-disconnect intent." >&2
+  exit 1
+fi
+[[ $(grep -c 'route replace\|rule add' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+
+# Intentional disconnect is a successful health observation only when live
+# fail-closed evidence agrees. Timers can therefore keep running successfully.
+MOCK_WG_UP=false
+MOCK_NFT_ACTIVE=true
+MOCK_DIRECT_CURL_RC=0
+export MOCK_WG_UP MOCK_NFT_ACTIVE MOCK_DIRECT_CURL_RC
+set_rules
+set_routes
+sample=$(healthcheck_run)
+[[ ${sample} == HEALTH=OK* ]]
+[[ ${sample} == *'state=intentionally_disconnected'* ]]
+[[ ${sample} == *'route=absent'* && ${sample} == *'nft=ok'* ]]
+[[ ${sample} == *'recovery=none'* ]]
+
+# Corrupt/unsafe intent never becomes absent and never permits recovery.
+for unsafe_state in corrupt unsafe; do
+  printf '%s\n' "${unsafe_state}" >"${MOCK_INTENT_STATE_FILE}"
+  set_rules
+  set_routes
+  : >"${MOCK_IP_LOG}"
+  if sample=$(healthcheck_run); then
+    echo "${unsafe_state} intent unexpectedly produced healthy state." >&2
+    exit 1
+  fi
+  [[ ${sample} == *'state=failed'* && ${sample} == *"intent=${unsafe_state}"* ]]
+  [[ $(grep -c 'route replace\|rule add' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+done
+
+# Recovery that observed absent intent must check again after locking. Simulate
+# intent appearing exactly as the health process acquires the shared lock.
+rm -f "${MOCK_INTENT_STATE_FILE}"
+MOCK_WG_UP=true
+MOCK_FLOCK_CREATE_INTENT=true
+export MOCK_WG_UP MOCK_FLOCK_CREATE_INTENT
+set_rules
+set_routes
+: >"${MOCK_IP_LOG}"
+if sample=$(healthcheck_run); then
+  echo "Inconsistent newly-created intent should fail health observation." >&2
+  exit 1
+fi
+[[ ${sample} == *'state=failed'* && ${sample} == *'intent=valid'* ]]
+[[ $(grep -c 'route replace\|rule add' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+MOCK_FLOCK_CREATE_INTENT=false
+export MOCK_FLOCK_CREATE_INTENT
+
+# A contended lock produces stable mutation_busy evidence and no unlocked
+# retry or routing mutation.
+rm -f "${MOCK_INTENT_STATE_FILE}"
+MOCK_FLOCK_BUSY=true
+export MOCK_FLOCK_BUSY
+set_rules
+set_routes
+: >"${MOCK_IP_LOG}"
+if sample=$(healthcheck_run); then
+  echo "Health recovery unexpectedly succeeded without the shared lock." >&2
+  exit 1
+fi
+[[ ${sample} == *'recovery=mutation_busy'* ]]
+[[ $(grep -c 'route replace\|rule add' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+MOCK_FLOCK_BUSY=false
+export MOCK_FLOCK_BUSY
 
 echo "Policy-routing drift detection and repair checks passed."

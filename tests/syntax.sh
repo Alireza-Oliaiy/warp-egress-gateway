@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
 
 mapfile -t files < <(find "${ROOT}" -type f -name '*.sh' -not -path '*/release/*' | sort)
 for file in "${files[@]}"; do
@@ -24,6 +25,8 @@ required=(
   native/scripts/healthcheck-lib.sh
   native/scripts/routing.sh
   native/scripts/route-repair.sh
+  native/scripts/runtime-state.sh
+  native/scripts/runtime-state-validate.py
   native/systemd/warp-monitor.service
   native/systemd/warp-monitor.timer
   docker/bin/monitor.sh
@@ -31,6 +34,10 @@ required=(
   shared/profile/normalize-warp-profile-ipv4.sh
   tests/profile-ipv4.sh
   tests/policy-recovery.sh
+  tests/runtime-state.sh
+  tests/helper.sh
+  tests/helper_test.py
+  web/helper/warp-web-helper.py
   tests/run-all.sh
   tests/whitespace.sh
   docs/monitoring.md
@@ -51,6 +58,20 @@ for path in "${required[@]}"; do
   }
 done
 
+"${PYTHON3_BIN}" - "${ROOT}" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+for relative in (
+    "native/scripts/runtime-state-validate.py",
+    "web/helper/warp-web-helper.py",
+    "tests/helper_test.py",
+):
+    path = root / relative
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
+
 
 # Windows publishing and extracted-file resilience checks.
 grep -q 'exec bash .*native/setup.sh' "${ROOT}/setup.sh" || {
@@ -63,6 +84,10 @@ grep -q 'exec bash .*docker/setup.sh' "${ROOT}/setup.sh" || {
 }
 grep -q '\*.sh text eol=lf' "${ROOT}/.gitattributes" || {
   echo "Shell scripts must be pinned to LF line endings." >&2
+  exit 1
+}
+grep -q '\*.py text eol=lf' "${ROOT}/.gitattributes" || {
+  echo "Python scripts must be pinned to LF line endings." >&2
   exit 1
 }
 [[ -x ${ROOT}/tests/run-all.sh ]] || {

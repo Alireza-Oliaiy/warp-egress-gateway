@@ -7,6 +7,16 @@ if ! declare -F policy_routing_status >/dev/null 2>&1; then
 fi
 
 monitor_status() {
+  if [[ ${INTENT_STATE:-absent} != absent ]]; then
+    if [[ ${INTENT_STATE} == valid && ${WG_STATE} == down \
+      && ${DIRECT_STATE} == ok && ${WARP_STATE} == off \
+      && ${ROUTE_STATE} == absent && ${NFT_STATE} == ok ]]; then
+      printf 'OK\n'
+    else
+      printf 'FAIL\n'
+    fi
+    return 0
+  fi
   if [[ ${WG_STATE} != up ]] ||
     [[ ${DIRECT_STATE} != ok ]] ||
     [[ ${WARP_STATE} != on ]] ||
@@ -29,7 +39,7 @@ monitor_sample() {
   local direct_state direct_rc direct_ip direct_output uplink_ip
   local warp_state warp_rc warp_ip_public warp_colo warp_loc
   local warp_ip warp_output warp_value
-  local upstream_state upstream_ip route_state nft_state status
+  local upstream_state upstream_ip route_state nft_state status state intent_state
 
   now=$(date +%s)
   handshake_warn_sec=${MONITOR_HANDSHAKE_WARN_SEC:-120}
@@ -50,6 +60,7 @@ monitor_sample() {
   upstream_state=skip
   route_state=rule_query_failed
   nft_state=fail
+  intent_state=$(intentional_disconnect_state)
 
   if ip link show "${WARP_IF}" >/dev/null 2>&1; then
     wg_state=up
@@ -84,7 +95,7 @@ monitor_sample() {
     fi
   fi
 
-  if warp_ip=$(warp_ipv4_address 2>/dev/null); then
+  if [[ ${intent_state} == absent ]] && warp_ip=$(warp_ipv4_address 2>/dev/null); then
     if warp_output=$(curl -4 --silent --interface "${warp_ip}" \
       --connect-timeout "${curl_timeout}" --max-time "${curl_timeout}" \
       "${url}" 2>/dev/null); then
@@ -106,7 +117,15 @@ monitor_sample() {
     fi
   fi
 
+  if [[ ${intent_state} != absent ]]; then
+    warp_state=off
+    warp_rc=not_run
+  fi
+
   upstream_ip=${UPSTREAM_MONITOR_IP:-auto}
+  if [[ ${intent_state} != absent ]]; then
+    upstream_ip=off
+  fi
   if [[ ${upstream_ip} == off ]]; then
     upstream_ip=
   elif [[ ${upstream_ip} == auto ]]; then
@@ -122,7 +141,11 @@ monitor_sample() {
     fi
   fi
 
-  if ! route_state=$(policy_routing_status); then
+  if [[ ${intent_state} == absent ]]; then
+    if ! route_state=$(policy_routing_status); then
+      route_state=rule_query_failed
+    fi
+  elif ! route_state=$(policy_routing_absence_status); then
     route_state=rule_query_failed
   fi
   if kill_switch_active; then
@@ -137,10 +160,21 @@ monitor_sample() {
   ROUTE_STATE=${route_state}
   NFT_STATE=${nft_state}
   UPSTREAM_STATE=${upstream_state}
+  INTENT_STATE=${intent_state}
   status=$(monitor_status)
 
-  printf 'STATUS=%s wg=%s handshake=%s handshake_age=%ss direct=%s direct_rc=%s direct_ip=%s warp=%s warp_rc=%s warp_ip=%s colo=%s loc=%s upstream=%s route=%s nft=%s\n' \
-    "${status}" "${wg_state}" "${handshake_state}" "${handshake_age}" \
+  if [[ ${intent_state} == valid && ${status} == OK ]]; then
+    state=intentionally_disconnected
+  else
+    case "${status}" in
+      OK) state=ok ;;
+      WARN) state=degraded ;;
+      *) state=failed ;;
+    esac
+  fi
+
+  printf 'STATUS=%s state=%s intent=%s wg=%s handshake=%s handshake_age=%ss direct=%s direct_rc=%s direct_ip=%s warp=%s warp_rc=%s warp_ip=%s colo=%s loc=%s upstream=%s route=%s nft=%s\n' \
+    "${status}" "${state}" "${intent_state}" "${wg_state}" "${handshake_state}" "${handshake_age}" \
     "${direct_state}" "${direct_rc}" "${direct_ip}" "${warp_state}" \
     "${warp_rc}" "${warp_ip_public}" "${warp_colo}" "${warp_loc}" \
     "${upstream_state}" "${route_state}" "${nft_state}"

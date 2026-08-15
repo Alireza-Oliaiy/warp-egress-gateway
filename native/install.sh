@@ -94,6 +94,7 @@ systemctl restart systemd-journald
 log "Installing project scripts."
 install -d -m 755 "${LIB_DIR}"
 install -m 755 "${REPO_DIR}"/scripts/*.sh "${LIB_DIR}/"
+install -m 755 "${REPO_DIR}"/scripts/*.py "${LIB_DIR}/"
 install -m 755 "${REPO_DIR}/scripts/warp-gateway" /usr/local/sbin/warp-gateway
 install -m 755 "${REPO_DIR}/../shared/upgrade/remote-upgrade.sh" /usr/local/sbin/warp-gateway-upgrade
 install -m 755 "${REPO_DIR}/../rollback.sh" /usr/local/sbin/warp-gateway-rollback

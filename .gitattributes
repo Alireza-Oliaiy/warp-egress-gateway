@@ -1,5 +1,6 @@
 # Keep Linux scripts usable when the repository is prepared on Windows.
 *.sh text eol=lf
+*.py text eol=lf
 Dockerfile text eol=lf
 Makefile text eol=lf
 *.yml text eol=lf

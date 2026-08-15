@@ -9,9 +9,13 @@ source "${SCRIPT_DIR}/routing.sh"
 require_root
 load_config
 
-ip link show "${WARP_IF}" >/dev/null 2>&1 || die "WARP interface ${WARP_IF} is not present."
-WARP_IPV4=$(warp_ipv4_address) || die "No IPv4 address found on ${WARP_IF}."
+if ! policy_routing_activate; then
+  die "Policy-routing activation failed; kill switch remains active (outcome=${POLICY_ROUTING_OUTCOME:-failed})."
+fi
 
-policy_routing_apply "${WARP_IPV4}"
+if [[ ${POLICY_ROUTING_OUTCOME} == intentionally_disconnected ]]; then
+  log "intentional_disconnect: policy routing remains absent by explicit runtime intent."
+  exit 0
+fi
 
 log "Policy routing enabled: ${TRANSIT_IF} -> table ${ROUTING_TABLE_ID} -> ${WARP_IF}."

@@ -5,6 +5,10 @@ if ! declare -F warp_ipv4_address >/dev/null 2>&1; then
   # shellcheck source=common.sh
   source "${ROUTING_SCRIPT_DIR}/common.sh"
 fi
+if ! declare -F with_mutation_lock >/dev/null 2>&1; then
+  # shellcheck source=runtime-state.sh
+  source "${ROUTING_SCRIPT_DIR}/runtime-state.sh"
+fi
 
 routing_diagnostic() {
   if declare -F warn >/dev/null 2>&1; then
@@ -96,6 +100,30 @@ policy_routing_status() {
   printf 'ok\n'
 }
 
+policy_routing_absence_status() {
+  local rules routes
+  if ! rules=$(ip -4 rule show 2>/dev/null); then
+    printf 'rule_query_failed\n'
+    return 0
+  fi
+  if awk -v source_priority="${SOURCE_RULE_PRIORITY}:" \
+    -v ingress_priority="${INGRESS_RULE_PRIORITY}:" \
+    '$1 == source_priority || $1 == ingress_priority { found=1 } END { exit(found ? 0 : 1) }' \
+    <<<"${rules}"; then
+    printf 'present\n'
+    return 0
+  fi
+  if ! routes=$(ip -4 route show table "${ROUTING_TABLE_ID}" 2>/dev/null); then
+    printf 'route_query_failed\n'
+    return 0
+  fi
+  if [[ -n ${routes//[[:space:]]/} ]]; then
+    printf 'present\n'
+  else
+    printf 'absent\n'
+  fi
+}
+
 kill_switch_active() {
   local rules
   if ! rules=$(nft list table inet "${NFT_TABLE}" 2>/dev/null); then
@@ -117,8 +145,32 @@ kill_switch_active() {
   ' <<<"${rules}"
 }
 
-policy_routing_apply() {
+policy_routing_intent_allows_locked() {
+  local state
+  mutation_lock_require_held || return
+  state=$(intentional_disconnect_state)
+  INTENT_STATE=${state}
+  case "${state}" in
+    absent) return 0 ;;
+    valid)
+      routing_diagnostic "intentional_disconnect: policy-routing mutation refused"
+      return 20
+      ;;
+    corrupt|unsafe)
+      routing_diagnostic "intent_${state}: policy-routing mutation refused fail closed"
+      return 21
+      ;;
+    *)
+      routing_diagnostic "intent_unknown: policy-routing mutation refused fail closed"
+      INTENT_STATE=unsafe
+      return 21
+      ;;
+  esac
+}
+
+policy_routing_apply_locked() {
   local warp_ipv4=${1:-} state
+  mutation_lock_require_held || return
   if [[ -z ${warp_ipv4} ]]; then
     warp_ipv4=$(warp_ipv4_address) || {
       routing_diagnostic "Cannot apply policy routing without an IPv4 address on ${WARP_IF}."
@@ -140,8 +192,61 @@ policy_routing_apply() {
   fi
 }
 
-policy_routing_repair() {
+policy_routing_apply_allowed_locked() {
+  mutation_lock_require_held || return
+  policy_routing_intent_allows_locked || return
+  policy_routing_apply_locked "${1:-}"
+}
+
+policy_routing_apply() {
+  local rc
+  POLICY_ROUTING_OUTCOME=failed
+  if with_mutation_lock policy_routing_apply_allowed_locked "${1:-}"; then
+    POLICY_ROUTING_OUTCOME=applied
+    return 0
+  else
+    rc=$?
+  fi
+  return "${rc}"
+}
+
+policy_routing_activate_locked() {
+  local warp_ipv4
+  mutation_lock_require_held || return
+  policy_routing_intent_allows_locked || {
+    local rc=$?
+    if [[ ${rc} -eq 20 ]]; then
+      POLICY_ROUTING_OUTCOME=intentionally_disconnected
+      return 0
+    fi
+    POLICY_ROUTING_OUTCOME="intent_${INTENT_STATE:-unsafe}"
+    return "${rc}"
+  }
+  ip link show "${WARP_IF}" >/dev/null 2>&1 || {
+    routing_diagnostic "Cannot activate policy routing: WARP interface ${WARP_IF} is down."
+    return 1
+  }
+  kill_switch_active || {
+    routing_diagnostic "Cannot activate policy routing: nftables kill switch is not active."
+    return 1
+  }
+  warp_ipv4=$(warp_ipv4_address) || {
+    routing_diagnostic "Cannot activate policy routing without an IPv4 address on ${WARP_IF}."
+    return 1
+  }
+  policy_routing_apply_locked "${warp_ipv4}"
+  POLICY_ROUTING_OUTCOME=applied
+}
+
+policy_routing_activate() {
+  # shellcheck disable=SC2034 # route-up.sh consumes this sourced-library result
+  POLICY_ROUTING_OUTCOME=failed
+  with_mutation_lock policy_routing_activate_locked
+}
+
+policy_routing_repair_locked() {
   local state warp_ipv4
+  mutation_lock_require_held || return
 
   ip link show "${WARP_IF}" >/dev/null 2>&1 || {
     routing_diagnostic "Policy repair refused: WARP interface ${WARP_IF} is down."
@@ -166,5 +271,27 @@ policy_routing_repair() {
   fi
 
   routing_diagnostic "Policy-routing drift detected (${state}); reapplying project-owned rules only."
-  policy_routing_apply "${warp_ipv4}"
+  policy_routing_apply_locked "${warp_ipv4}"
+}
+
+policy_routing_repair_allowed_locked() {
+  mutation_lock_require_held || return
+  policy_routing_intent_allows_locked || return
+  policy_routing_repair_locked
+}
+
+policy_routing_repair() {
+  with_mutation_lock policy_routing_repair_allowed_locked
+}
+
+policy_routing_remove_locked() {
+  mutation_lock_require_held || return
+  remove_rule_priority "${INGRESS_RULE_PRIORITY}"
+  remove_rule_priority "${SOURCE_RULE_PRIORITY}"
+  ip -4 route flush table "${ROUTING_TABLE_ID}" 2>/dev/null || true
+  ip -4 route flush cache
+}
+
+policy_routing_remove() {
+  with_mutation_lock policy_routing_remove_locked
 }

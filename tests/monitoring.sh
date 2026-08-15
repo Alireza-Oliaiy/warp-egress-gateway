@@ -80,6 +80,15 @@ run_monitor_decision_cases() {
       exit 1
     }
   done
+
+  # shellcheck disable=SC2034 # monitor_status consumes dynamically scoped inputs
+  INTENT_STATE=valid WG_STATE=down HANDSHAKE_STATE=none DIRECT_STATE=ok \
+    WARP_STATE=off ROUTE_STATE=absent NFT_STATE=ok UPSTREAM_STATE=skip
+  actual=$(monitor_status)
+  [[ ${actual} == OK ]] || {
+    echo "Intentional disconnect expected OK observation, got ${actual}." >&2
+    exit 1
+  }
 }
 
 run_monitor_decision_cases
@@ -94,16 +103,22 @@ run_monitor_probe_cases() {
 #!/usr/bin/env bash
 set -Eeuo pipefail
 case "$*" in
-  'link show warp0') exit 0 ;;
+  'link show warp0') [[ ${MOCK_WG_PRESENT:-true} == true ]] ;;
   '-4 -o address show dev eth0 scope global')
     echo '2: eth0    inet 203.0.113.10/24 scope global eth0' ;;
   '-4 -o address show dev warp0 scope global')
+    [[ ${MOCK_WG_PRESENT:-true} == true ]] || exit 1
     echo '7: warp0    inet 192.0.2.2/32 scope global warp0' ;;
   '-4 rule show')
-    printf '%s\n' \
-      '100: from 192.0.2.2 lookup warp_gateway' \
-      '110: from all iif eth1 lookup warp_gateway' ;;
-  '-4 route show table 100 default') echo 'default dev warp0' ;;
+    if [[ ${MOCK_POLICY_PRESENT:-true} == true ]]; then
+      printf '%s\n' \
+        '100: from 192.0.2.2 lookup warp_gateway' \
+        '110: from all iif eth1 lookup warp_gateway'
+    fi ;;
+  '-4 route show table 100 default'|'-4 route show table 100')
+    if [[ ${MOCK_POLICY_PRESENT:-true} == true ]]; then
+      echo 'default dev warp0'
+    fi ;;
   *) echo "Unexpected fake ip invocation: $*" >&2; exit 64 ;;
 esac
 MOCK_IP
@@ -137,9 +152,10 @@ fi
 exit 64
 MOCK_CURL
 
-  cat >"${mock_bin}/nft" <<'MOCK_NFT'
+cat >"${mock_bin}/nft" <<'MOCK_NFT'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+[[ ${MOCK_NFT_ACTIVE:-true} == true ]] || exit 1
 cat <<'NFT'
 table inet warp_gateway {
   chain forward {
@@ -185,6 +201,10 @@ MOCK_PING
   # shellcheck source=../native/scripts/monitor-lib.sh
   source "${MONITOR_LIB}"
 
+  intentional_disconnect_state() {
+    printf '%s\n' "${MOCK_INTENT_STATE:-absent}"
+  }
+
   now=$(date +%s)
   MOCK_HANDSHAKE_TS=$((now - 10))
   MOCK_WARP_CURL_RC=0
@@ -202,6 +222,28 @@ MOCK_PING
   sample=$(monitor_sample)
   [[ ${sample} == STATUS=FAIL* ]]
   [[ ${sample} == *'warp=fail'* && ${sample} == *'warp_rc=28'* ]]
+
+  MOCK_INTENT_STATE=valid
+  MOCK_WG_PRESENT=false
+  MOCK_POLICY_PRESENT=false
+  MOCK_NFT_ACTIVE=true
+  export MOCK_INTENT_STATE MOCK_WG_PRESENT MOCK_POLICY_PRESENT MOCK_NFT_ACTIVE
+  sample=$(monitor_sample)
+  [[ ${sample} == STATUS=OK* ]]
+  [[ ${sample} == *'state=intentionally_disconnected'* ]]
+  [[ ${sample} == *'intent=valid'* && ${sample} == *'wg=down'* ]]
+  [[ ${sample} == *'route=absent'* && ${sample} == *'warp=off'* ]]
+
+  MOCK_NFT_ACTIVE=false
+  export MOCK_NFT_ACTIVE
+  sample=$(monitor_sample)
+  [[ ${sample} == STATUS=FAIL* && ${sample} == *'state=failed'* ]]
+
+  MOCK_INTENT_STATE=corrupt
+  MOCK_NFT_ACTIVE=true
+  export MOCK_INTENT_STATE MOCK_NFT_ACTIVE
+  sample=$(monitor_sample)
+  [[ ${sample} == STATUS=FAIL* && ${sample} == *'intent=corrupt'* ]]
 
   rm -rf "${test_dir}"
 }
