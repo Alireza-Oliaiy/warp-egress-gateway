@@ -425,6 +425,33 @@ if grep -qE 'route (del|flush) (default|table main)|nft' "${MOCK_IP_LOG}"; then
 fi
 grep -q '^-x -w 5 ' "${MOCK_FLOCK_LOG}"
 
+# The systemd indirect-stop exception is a zero-mutation no-op only when a
+# valid intent agrees with already-absent project routing.
+printf 'valid\n' >"${MOCK_INTENT_STATE_FILE}"
+set_rules
+set_routes
+: >"${MOCK_IP_LOG}"
+: >"${MOCK_FLOCK_LOG}"
+policy_routing_remove_for_shutdown
+[[ ! -s ${MOCK_FLOCK_LOG} ]]
+[[ $(grep -c 'rule del\|route flush' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+
+# Residual project routing forbids the no-lock shortcut. Busy means no cleanup.
+set_healthy
+: >"${MOCK_IP_LOG}"
+: >"${MOCK_FLOCK_LOG}"
+MOCK_FLOCK_BUSY=true
+export MOCK_FLOCK_BUSY
+if policy_routing_remove_for_shutdown; then
+  echo "Route-down must not succeed unlocked while project routing remains." >&2
+  exit 1
+else
+  [[ $? -eq 75 ]]
+fi
+[[ $(grep -c 'rule del\|route flush' "${MOCK_IP_LOG}" || true) -eq 0 ]]
+MOCK_FLOCK_BUSY=false
+export MOCK_FLOCK_BUSY
+
 # Intent is re-read under the lock and blocks route activation and repair.
 printf 'valid\n' >"${MOCK_INTENT_STATE_FILE}"
 set_rules

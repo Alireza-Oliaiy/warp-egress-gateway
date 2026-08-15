@@ -295,3 +295,18 @@ policy_routing_remove_locked() {
 policy_routing_remove() {
   with_mutation_lock policy_routing_remove_locked
 }
+
+policy_routing_remove_for_shutdown() {
+  local intent_state absence_state
+  intent_state=$(intentional_disconnect_state)
+  if [[ ${intent_state} == valid ]]; then
+    absence_state=$(policy_routing_absence_status)
+    if [[ ${absence_state} == absent ]]; then
+      # The disconnect transaction already established the postcondition.
+      # This systemd indirect-stop path performs no mutation and therefore
+      # must not contend for the lock already held by that transaction.
+      return 0
+    fi
+  fi
+  policy_routing_remove
+}

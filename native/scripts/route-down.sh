@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/routing.sh"
 require_root
 load_config
 
-policy_routing_remove
+policy_routing_remove_for_shutdown
 
 # The firewall is intentionally left loaded. Traffic entering TRANSIT_IF remains
 # blocked from every egress except WARP_IF, preventing fallback/leak via UPLINK_IF.

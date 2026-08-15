@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 import ipaddress
 import json
 import os
@@ -41,6 +42,9 @@ FUTURE_VERBS = {
     "warp-disconnect",
     "logs-read",
 }
+MUTATION_VERBS = {"routing-repair", "health-run", "warp-disconnect"}
+IMPLEMENTED_VERBS |= MUTATION_VERBS
+FUTURE_VERBS -= MUTATION_VERBS
 ALL_VERBS = IMPLEMENTED_VERBS | FUTURE_VERBS
 SEMVER_RE = re.compile(
     r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\Z"
@@ -89,11 +93,12 @@ REQUIRED_ROUTING_KEYS = {
 
 
 class HelperError(Exception):
-    def __init__(self, code: str, message: str, exit_code: int) -> None:
+    def __init__(self, code: str, message: str, exit_code: int, details: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.exit_code = exit_code
+        self.details = dict(details) if details is not None else None
 
 
 class InvalidRequest(HelperError):
@@ -134,12 +139,20 @@ class HelperRuntime:
     child_environment: Mapping[str, str]
     child_timeout_seconds: float = 3.0
     child_output_limit: int = 65536
+    adapter_argv: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    adapter_timeout_seconds: Mapping[str, float] = field(default_factory=dict)
+    audit_argv: tuple[str, ...] = ()
+    sudo_caller: str | None = None
 
 
 @dataclass(frozen=True)
 class HelperRequest:
     verb: str
     request_id: str
+    parameters: Mapping[str, Any]
+    asserted_actor: str
+    asserted_role: str
+    asserted_source_ip: str
 
 
 PRODUCTION_RUNTIME = HelperRuntime(
@@ -155,6 +168,17 @@ PRODUCTION_RUNTIME = HelperRuntime(
         "LC_ALL": "C",
         "TZ": "UTC",
     },
+    adapter_argv={
+        "routing-repair": ("/usr/local/lib/warp-egress-gateway/web-routing-repair.sh",),
+        "health-run": ("/usr/local/lib/warp-egress-gateway/web-health-run.sh",),
+        "warp-disconnect": ("/usr/local/lib/warp-egress-gateway/web-warp-disconnect.sh",),
+    },
+    adapter_timeout_seconds={
+        "routing-repair": 15.0,
+        "health-run": 45.0,
+        "warp-disconnect": 30.0,
+    },
+    audit_argv=("/usr/bin/logger", "--tag", "warp-web-helper", "--"),
 )
 
 
@@ -185,7 +209,16 @@ def parse_request(raw: bytes) -> HelperRequest:
         raise InvalidRequest()
     if type(value["verb"]) is not str or value["verb"] not in ALL_VERBS:
         raise InvalidRequest()
-    if type(value["parameters"]) is not dict or value["parameters"]:
+    parameters = value["parameters"]
+    if type(parameters) is not dict:
+        raise InvalidRequest()
+    if value["verb"] in {"version", "routing-status", "routing-repair", "health-run"}:
+        if parameters:
+            raise InvalidRequest()
+    elif value["verb"] == "warp-disconnect":
+        if parameters != {"confirmation": "disconnect-and-block-transit"}:
+            raise InvalidRequest()
+    elif parameters:
         raise InvalidRequest()
 
     request_id = value["request_id"]
@@ -215,9 +248,17 @@ def parse_request(raw: bytes) -> HelperRequest:
     except ValueError as exc:
         raise InvalidRequest() from exc
 
-    # The asserted audit values are deliberately discarded here. Dispatch is
-    # determined solely by the separately validated verb.
-    return HelperRequest(verb=value["verb"], request_id=request_id)
+    # Asserted values are retained only for bounded audit attribution and the
+    # disconnect intent record. They never select dispatch, paths, argv, or
+    # safety decisions.
+    return HelperRequest(
+        verb=value["verb"],
+        request_id=request_id,
+        parameters=dict(parameters),
+        asserted_actor=actor,
+        asserted_role=role,
+        asserted_source_ip=source_ip,
+    )
 
 
 def safe_read_file(
@@ -332,12 +373,17 @@ def terminate_process(process: subprocess.Popen[bytes]) -> None:
         pass
 
 
-def run_fixed_command(runtime: HelperRuntime, arguments: Sequence[str]) -> bytes:
-    command = (*runtime.ip_argv, *arguments)
+def run_bounded_process(
+    runtime: HelperRuntime,
+    command: Sequence[str],
+    *,
+    input_data: bytes = b"",
+    timeout_seconds: float | None = None,
+) -> tuple[int, bytes]:
     try:
         process = subprocess.Popen(
             command,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if input_data else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=runtime.working_directory,
@@ -347,6 +393,13 @@ def run_fixed_command(runtime: HelperRuntime, arguments: Sequence[str]) -> bytes
         )
     except OSError as exc:
         raise QueryFailed() from exc
+
+    if input_data and process.stdin is not None:
+        try:
+            process.stdin.write(input_data)
+            process.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
 
     stdout = bytearray()
     stderr = bytearray()
@@ -370,7 +423,9 @@ def run_fixed_command(runtime: HelperRuntime, arguments: Sequence[str]) -> bytes
     ]
     for thread in threads:
         thread.start()
-    deadline = time.monotonic() + runtime.child_timeout_seconds
+    deadline = time.monotonic() + (
+        runtime.child_timeout_seconds if timeout_seconds is None else timeout_seconds
+    )
     timed_out = False
     while process.poll() is None:
         if overflow.is_set():
@@ -397,13 +452,153 @@ def run_fixed_command(runtime: HelperRuntime, arguments: Sequence[str]) -> bytes
         raise ChildTimeout()
     if overflow.is_set():
         raise ChildOutputLimit()
-    if process.returncode != 0:
-        raise QueryFailed()
     try:
         stdout.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise QueryFailed() from exc
-    return bytes(stdout)
+    return process.returncode, bytes(stdout)
+
+
+def run_fixed_command(runtime: HelperRuntime, arguments: Sequence[str]) -> bytes:
+    return_code, stdout = run_bounded_process(runtime, (*runtime.ip_argv, *arguments))
+    if return_code != 0:
+        raise QueryFailed()
+    return stdout
+
+
+def strict_json_object(raw: bytes) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=lambda _value: (_ for _ in ()).throw(InvalidRequest()),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, InvalidRequest) as exc:
+        raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5) from exc
+    if type(value) is not dict:
+        raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    return value
+
+
+def validate_adapter_data(verb: str, data: Any) -> dict[str, Any]:
+    if type(data) is not dict:
+        raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    expected: dict[str, set[str]] = {
+        "routing-repair": {"state", "changed", "before", "after", "wireguard_restarted", "killswitch_changed", "main_default_changed"},
+        "health-run": {"state", "reason", "recovery", "checks"},
+        "warp-disconnect": {"state", "already_disconnected", "intent", "routing_removed", "wireguard_stopped", "killswitch", "transit_behavior", "main_default_changed", "automatic_recovery_suppressed", "health_timer_active", "monitor_timer_active"},
+    }
+    if set(data) != expected[verb]:
+        raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    if verb == "routing-repair":
+        if data["state"] != "ok" or type(data["changed"]) is not bool or data["after"] != "ok":
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        if not all(type(data[key]) is bool for key in ("wireguard_restarted", "killswitch_changed", "main_default_changed")):
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    elif verb == "health-run":
+        if data["state"] not in {"ok", "failed", "intentionally_disconnected"} or data["recovery"] not in {"none", "policy", "tunnel", "mutation_busy"}:
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        checks = data["checks"]
+        if type(checks) is not dict or set(checks) != {"wireguard", "direct", "warp", "routing", "killswitch"}:
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    else:
+        intent = data["intent"]
+        if data["state"] != "intentionally_disconnected" or type(intent) is not dict or set(intent) != {"active", "since"} or intent["active"] is not True:
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        if data["transit_behavior"] != "blocked_by_kill_switch" or data["killswitch"] != "active":
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        for key in ("already_disconnected", "routing_removed", "wireguard_stopped", "main_default_changed", "automatic_recovery_suppressed", "health_timer_active", "monitor_timer_active"):
+            if type(data[key]) is not bool:
+                raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+    return dict(data)
+
+
+def redact_attribution(value: str) -> str:
+    if re.search(r"privatekey|presharedkey|password|cookie|token|secret|tls", value, re.IGNORECASE):
+        return "[redacted]"
+    return value[:128]
+
+
+def write_audit(runtime: HelperRuntime, request: HelperRequest, *, started: float, result: str, reason: str, data: Mapping[str, Any] | None) -> None:
+    if not runtime.audit_argv:
+        raise HelperError("audit_unavailable", "The root audit sink is unavailable.", 5)
+    target = {"routing-repair": "project_routing", "health-run": "gateway_health", "warp-disconnect": "warp_dataplane"}[request.verb]
+    before = "unknown"
+    after = "failed" if result == "failure" else "unknown"
+    if data:
+        if request.verb == "routing-repair":
+            before = str(data.get("before", before))[:64]
+        elif request.verb == "warp-disconnect":
+            before = "intentionally_disconnected" if data.get("already_disconnected") is True else "connected_or_degraded"
+        else:
+            before = "health_observation"
+        after = str(data.get("after", data.get("state", after)))[:64]
+    event = {
+        "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "request_id": request.request_id,
+        "asserted_actor": redact_attribution(request.asserted_actor),
+        "asserted_role": request.asserted_role,
+        "asserted_source_ip": request.asserted_source_ip,
+        "effective_uid": os.geteuid() if hasattr(os, "geteuid") else None,
+        "sudo_caller": redact_attribution(runtime.sudo_caller) if runtime.sudo_caller else None,
+        "verb": request.verb,
+        "target_class": target,
+        "result": result,
+        "reason": reason,
+        "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
+        "before": before,
+        "after": after,
+    }
+    encoded = json.dumps(event, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode() + b"\n"
+    return_code, _stdout = run_bounded_process(runtime, runtime.audit_argv, input_data=encoded, timeout_seconds=2.0)
+    if return_code != 0:
+        raise HelperError("audit_unavailable", "The root audit sink is unavailable.", 5)
+
+
+def run_mutation_adapter(runtime: HelperRuntime, request: HelperRequest) -> dict[str, Any]:
+    started = time.monotonic()
+    data: dict[str, Any] | None = None
+    try:
+        # Validate the fixed root-owned configuration as inert data before any
+        # privileged operation adapter is started, but inside the audited
+        # boundary so every valid mutation invocation has a root-side event.
+        parse_config(runtime)
+        command = runtime.adapter_argv.get(request.verb)
+        timeout = runtime.adapter_timeout_seconds.get(request.verb)
+        if not command or timeout is None:
+            raise HelperError("adapter_unavailable", "A fixed operation adapter is unavailable.", 5)
+        internal = {}
+        if request.verb == "warp-disconnect":
+            internal = {"request_id": request.request_id, "asserted_actor": request.asserted_actor}
+        encoded = json.dumps(internal, separators=(",", ":"), ensure_ascii=True).encode() + b"\n"
+        return_code, stdout = run_bounded_process(runtime, command, input_data=encoded, timeout_seconds=timeout)
+        if return_code != 0:
+            raise HelperError("adapter_failed", "A fixed operation adapter failed safely.", 5)
+        envelope = strict_json_object(stdout)
+        if set(envelope) != {"protocol", "verb", "ok", "code", "data"} or envelope["protocol"] != 1 or envelope["verb"] != request.verb or type(envelope["ok"]) is not bool or type(envelope["code"]) is not str:
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        if not envelope["ok"]:
+            allowed = {"mutation_busy", "intent_conflict", "unsafe_precondition", "postcondition_failed", "health_failed"}
+            code = envelope["code"] if envelope["code"] in allowed else "adapter_failed"
+            failure_data = envelope["data"]
+            if type(failure_data) is not dict or failure_data.get("state") != "failed" or failure_data.get("reason") != code:
+                raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+            expected_failure = {"state", "reason"}
+            if request.verb == "warp-disconnect":
+                expected_failure |= {"intent_active", "automatic_recovery_suppressed"}
+                if type(failure_data.get("intent_active")) is not bool or type(failure_data.get("automatic_recovery_suppressed")) is not bool:
+                    raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+            if set(failure_data) != expected_failure:
+                raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+            raise HelperError(code, "The fixed operation was refused or failed safely.", 75 if code == "mutation_busy" else 5, failure_data)
+        if envelope["code"] != "ok":
+            raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
+        data = validate_adapter_data(request.verb, envelope["data"])
+        write_audit(runtime, request, started=started, result="success", reason="ok", data=data)
+        return data
+    except HelperError as error:
+        write_audit(runtime, request, started=started, result="failure", reason=error.code, data=error.details or data)
+        raise
 
 
 def read_version(runtime: HelperRuntime) -> dict[str, str]:
@@ -528,12 +723,15 @@ def success_response(request: HelperRequest, data: Mapping[str, Any]) -> dict[st
 
 
 def error_response(error: HelperError, request_id: str | None = None) -> dict[str, Any]:
-    return {
+    response = {
         "protocol": PROTOCOL_VERSION,
         "request_id": request_id,
         "ok": False,
         "error": {"code": error.code, "message": error.message},
     }
+    if error.details is not None:
+        response["error"]["details"] = error.details
+    return response
 
 
 def process_request(raw: bytes, runtime: HelperRuntime) -> tuple[int, dict[str, Any]]:
@@ -550,6 +748,8 @@ def process_request(raw: bytes, runtime: HelperRuntime) -> tuple[int, dict[str, 
             data = read_version(runtime)
         elif request.verb == "routing-status":
             data = routing_status(runtime)
+        elif request.verb in MUTATION_VERBS:
+            data = run_mutation_adapter(runtime, request)
         else:
             raise InvalidRequest()
         return 0, success_response(request, data)
@@ -567,11 +767,12 @@ def production_main() -> int:
         sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
         return error.exit_code
 
-    os.chdir(PRODUCTION_RUNTIME.working_directory)
+    runtime = replace(PRODUCTION_RUNTIME, sudo_caller=os.environ.get("SUDO_USER"))
+    os.chdir(runtime.working_directory)
     os.environ.clear()
-    os.environ.update(PRODUCTION_RUNTIME.child_environment)
+    os.environ.update(runtime.child_environment)
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
-    exit_code, response = process_request(raw, PRODUCTION_RUNTIME)
+    exit_code, response = process_request(raw, runtime)
     encoded = json.dumps(response, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     if len(encoded.encode("utf-8")) > MAX_RESPONSE_BYTES:
         exit_code = 7

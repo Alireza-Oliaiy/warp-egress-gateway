@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -38,9 +39,15 @@ class HelperTests(unittest.TestCase):
         self.mode = self.root / "mode"
         self.argv_log = self.root / "argv.jsonl"
         self.fake_ip = self.root / "fake_ip.py"
+        self.adapter_mode = self.root / "adapter-mode"
+        self.adapter_log = self.root / "adapter-log.jsonl"
+        self.audit_log = self.root / "audit-log.jsonl"
+        self.fake_adapter = self.root / "fake_adapter.py"
+        self.fake_logger = self.root / "fake_logger.py"
         self.version.write_text("0.4.1\n", encoding="utf-8")
         self.write_config()
         self.mode.write_text("healthy", encoding="ascii")
+        self.adapter_mode.write_text("healthy", encoding="ascii")
         self.fake_ip.write_text(
             """#!/usr/bin/env python3
 import json, os, pathlib, sys, time
@@ -75,9 +82,45 @@ else:
 """,
             encoding="utf-8",
         )
+        self.fake_adapter.write_text(
+            """#!/usr/bin/env python3
+import json, os, pathlib, sys, time
+verb = sys.argv[1]
+raw = sys.stdin.buffer.read()
+with pathlib.Path(os.environ['FAKE_ADAPTER_LOG']).open('a', encoding='utf-8') as log:
+    log.write(json.dumps({'argv': sys.argv[1:], 'stdin': raw.decode('utf-8')}) + '\\n')
+mode = pathlib.Path(os.environ['FAKE_ADAPTER_MODE']).read_text().strip()
+if mode == 'sleep':
+    time.sleep(2)
+if mode == 'malformed':
+    print('{not-json')
+    raise SystemExit(0)
+if mode == 'stderr':
+    print('PrivateKey=SEEDED_PRIVATE', file=sys.stderr)
+    raise SystemExit(9)
+data = {
+  'routing-repair': {'state':'ok','changed':True,'before':'source_rule_missing','after':'ok','wireguard_restarted':False,'killswitch_changed':False,'main_default_changed':False},
+  'health-run': {'state':'ok','reason':'none','recovery':'policy','checks':{'wireguard':'up','direct':'ok','warp':'on','routing':'ok','killswitch':'ok'}},
+  'warp-disconnect': {'state':'intentionally_disconnected','already_disconnected':False,'intent':{'active':True,'since':'2026-08-15T12:00:00Z'},'routing_removed':True,'wireguard_stopped':True,'killswitch':'active','transit_behavior':'blocked_by_kill_switch','main_default_changed':False,'automatic_recovery_suppressed':True,'health_timer_active':True,'monitor_timer_active':True},
+}[verb]
+print(json.dumps({'protocol':1,'verb':verb,'ok':True,'code':'ok','data':data}, separators=(',', ':')))
+""",
+            encoding="utf-8",
+        )
+        self.fake_logger.write_text(
+            """#!/usr/bin/env python3
+import os, pathlib, sys
+raw = sys.stdin.buffer.read()
+with pathlib.Path(os.environ['FAKE_AUDIT_LOG']).open('ab') as log:
+    log.write(raw.rstrip(b'\\n') + b'\\n')
+""",
+            encoding="utf-8",
+        )
         os.chmod(self.version, 0o644)
         os.chmod(self.config, 0o600)
         os.chmod(self.fake_ip, 0o755)
+        os.chmod(self.fake_adapter, 0o755)
+        os.chmod(self.fake_logger, 0o755)
         self.helper = load_helper()
         self.runtime = self.helper.HelperRuntime(
             version_path=self.version,
@@ -93,9 +136,27 @@ else:
                 "TZ": "UTC",
                 "FAKE_MODE_FILE": str(self.mode),
                 "FAKE_ARGV_LOG": str(self.argv_log),
+                "FAKE_ADAPTER_MODE": str(self.adapter_mode),
+                "FAKE_ADAPTER_LOG": str(self.adapter_log),
+                "FAKE_AUDIT_LOG": str(self.audit_log),
             },
             child_timeout_seconds=0.5,
             child_output_limit=65536,
+        )
+
+    def mutation_runtime(self):
+        return replace(
+            self.runtime,
+            adapter_argv={
+                verb: (sys.executable, str(self.fake_adapter), verb)
+                for verb in ("routing-repair", "health-run", "warp-disconnect")
+            },
+            adapter_timeout_seconds={
+                "routing-repair": 0.5,
+                "health-run": 0.5,
+                "warp-disconnect": 0.5,
+            },
+            audit_argv=(sys.executable, str(self.fake_logger)),
         )
 
     def test_installed_shebang_uses_fixed_isolated_python(self) -> None:
@@ -197,9 +258,6 @@ ENABLE_IPV6_TRANSIT="false"
         for verb in (
             "status",
             "health-read",
-            "health-run",
-            "routing-repair",
-            "warp-disconnect",
             "logs-read",
         ):
             before = self.argv_log.read_bytes() if self.argv_log.exists() else b""
@@ -210,6 +268,132 @@ ENABLE_IPV6_TRANSIT="false"
             )
             after = self.argv_log.read_bytes() if self.argv_log.exists() else b""
             self.assertEqual(after, before)
+
+    def test_mutation_verbs_have_exact_parameter_schemas(self) -> None:
+        for verb in ("routing-repair", "health-run"):
+            parsed = self.helper.parse_request(
+                json.dumps(self.request(verb)).encode("utf-8")
+            )
+            self.assertEqual(parsed.parameters, {})
+
+            request = self.request(verb, {"unexpected": True})
+            code, response = self.call(request)
+            self.assertEqual(code, 2)
+            self.assertEqual(response["error"]["code"], "invalid_request")
+
+        valid = self.request(
+            "warp-disconnect",
+            {"confirmation": "disconnect-and-block-transit"},
+        )
+        parsed = self.helper.parse_request(json.dumps(valid).encode("utf-8"))
+        self.assertEqual(
+            parsed.parameters,
+            {"confirmation": "disconnect-and-block-transit"},
+        )
+        self.assertEqual(parsed.asserted_actor, "admin-example")
+
+        invalid_parameters = [
+            {},
+            {"confirmation": "disconnect"},
+            {"confirmation": "disconnect-and-block-transit", "path": "/tmp/x"},
+            {"confirmation": ["disconnect-and-block-transit"]},
+        ]
+        for parameters in invalid_parameters:
+            with self.subTest(parameters=parameters):
+                code, response = self.call(self.request("warp-disconnect", parameters))
+                self.assertEqual(code, 2)
+                self.assertEqual(response["error"]["code"], "invalid_request")
+
+    def test_fixed_mutation_adapters_return_validated_structured_data(self) -> None:
+        runtime = self.mutation_runtime()
+        for verb in ("routing-repair", "health-run"):
+            code, response = self.helper.process_request(
+                json.dumps(self.request(verb)).encode(), runtime
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(response["data"]["state"], "ok")
+        code, response = self.helper.process_request(
+            json.dumps(
+                self.request(
+                    "warp-disconnect",
+                    {"confirmation": "disconnect-and-block-transit"},
+                )
+            ).encode(),
+            runtime,
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(response["data"]["state"], "intentionally_disconnected")
+        invocations = [json.loads(line) for line in self.adapter_log.read_text().splitlines()]
+        self.assertEqual([item["argv"] for item in invocations], [["routing-repair"], ["health-run"], ["warp-disconnect"]])
+        self.assertEqual(json.loads(invocations[0]["stdin"]), {})
+        self.assertEqual(
+            json.loads(invocations[2]["stdin"]),
+            {
+                "request_id": "0e2b7a20-e84c-4c1e-9eb8-a673be3d69d7",
+                "asserted_actor": "admin-example",
+            },
+        )
+
+    def test_asserted_metadata_cannot_change_adapter_path_or_argv(self) -> None:
+        runtime = self.mutation_runtime()
+        request = self.request(
+            "warp-disconnect", {"confirmation": "disconnect-and-block-transit"}
+        )
+        request["audit_context"] = {
+            "asserted_actor": "routing-repair --path=/tmp/evil",
+            "asserted_role": "Viewer",
+            "asserted_source_ip": "192.0.2.99",
+        }
+        code, _response = self.helper.process_request(json.dumps(request).encode(), runtime)
+        self.assertEqual(code, 0)
+        invocation = json.loads(self.adapter_log.read_text().splitlines()[-1])
+        self.assertEqual(invocation["argv"], ["warp-disconnect"])
+
+    def test_mutations_validate_fixed_config_before_adapter_dispatch(self) -> None:
+        runtime = self.mutation_runtime()
+        self.write_config('UNREVIEWED_KEY="value"\n')
+        code, response = self.helper.process_request(
+            json.dumps(self.request("routing-repair")).encode(), runtime
+        )
+        self.assertEqual(code, 3)
+        self.assertEqual(response["error"]["code"], "unsafe_config")
+        self.assertFalse(self.adapter_log.exists())
+        event = json.loads(self.audit_log.read_text().splitlines()[-1])
+        self.assertEqual(event["result"], "failure")
+        self.assertEqual(event["reason"], "unsafe_config")
+
+    def test_adapter_timeout_malformed_output_and_stderr_fail_closed(self) -> None:
+        runtime = self.mutation_runtime()
+        for mode, expected in (
+            ("sleep", "child_timeout"),
+            ("malformed", "invalid_adapter_response"),
+            ("stderr", "adapter_failed"),
+        ):
+            with self.subTest(mode=mode):
+                self.adapter_mode.write_text(mode, encoding="ascii")
+                code, response = self.helper.process_request(
+                    json.dumps(self.request("routing-repair")).encode(), runtime
+                )
+                self.assertNotEqual(code, 0)
+                self.assertEqual(response["error"]["code"], expected)
+                self.assertNotIn("SEEDED_PRIVATE", json.dumps(response))
+
+    def test_mutation_audit_is_structured_bounded_and_secret_free(self) -> None:
+        runtime = self.mutation_runtime()
+        request = self.request("routing-repair")
+        request["audit_context"]["asserted_actor"] = "admin PrivateKey=SEEDED_PRIVATE"
+        code, _response = self.helper.process_request(json.dumps(request).encode(), runtime)
+        self.assertEqual(code, 0)
+        event = json.loads(self.audit_log.read_text().splitlines()[-1])
+        self.assertEqual(event["request_id"], request["request_id"])
+        self.assertEqual(event["verb"], "routing-repair")
+        self.assertEqual(event["target_class"], "project_routing")
+        self.assertEqual(event["result"], "success")
+        self.assertEqual(event["effective_uid"], os.geteuid() if hasattr(os, "geteuid") else None)
+        self.assertIn("duration_ms", event)
+        encoded = json.dumps(event)
+        self.assertNotIn("SEEDED_PRIVATE", encoded)
+        self.assertNotIn("child_stdout", encoded)
 
     def test_protocol_rejects_malformed_and_oversized_input(self) -> None:
         invalid_requests = [
