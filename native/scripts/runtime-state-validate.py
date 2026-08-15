@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import runpy
 import sys
 import uuid
 from pathlib import Path
@@ -20,8 +21,9 @@ EXPECTED_FIELDS = {
     "request_id",
     "actor",
 }
-ACTOR_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}\Z")
 UTC_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+SCHEMA = runpy.run_path(str(Path(__file__).with_name("runtime-state-schema.py")))
+intent_actor_is_valid = SCHEMA["intent_actor_is_valid"]
 
 
 class InvalidIntent(ValueError):
@@ -64,7 +66,7 @@ def validate_record(record: Any) -> None:
         raise InvalidIntent("invalid request ID")
 
     actor = record["actor"]
-    if type(actor) is not str or not ACTOR_RE.fullmatch(actor):
+    if not intent_actor_is_valid(actor):
         raise InvalidIntent("invalid actor")
 
 

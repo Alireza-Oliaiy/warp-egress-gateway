@@ -4,6 +4,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
 
 "${PYTHON3_BIN}" "${ROOT}/tests/intent_writer_test.py"
+"${PYTHON3_BIN}" "${ROOT}/tests/nft_semantic_snapshot_test.py"
 
 for adapter in web-routing-repair.sh web-health-run.sh web-warp-disconnect.sh; do
   [[ -x ${ROOT}/native/scripts/${adapter} ]] || {
@@ -25,9 +26,11 @@ mkdir -p "${MOCK_BIN}"
 export MOCK_RULES=${TEST_DIR}/rules MOCK_ROUTES=${TEST_DIR}/routes
 export MOCK_MAIN=${TEST_DIR}/main MOCK_WG_STATE=${TEST_DIR}/wg-state
 export MOCK_SYSTEMCTL_LOG=${TEST_DIR}/systemctl.log
+export MOCK_NFT_JSON_CALLS=${TEST_DIR}/nft-json-calls
 printf 'default via 203.0.113.1 dev eth0\n' >"${MOCK_MAIN}"
 printf 'up\n' >"${MOCK_WG_STATE}"
 : >"${MOCK_SYSTEMCTL_LOG}"
+: >"${MOCK_NFT_JSON_CALLS}"
 
 cat >"${MOCK_BIN}/ip" <<'MOCK_IP'
 #!/usr/bin/env bash
@@ -53,7 +56,26 @@ cat >"${MOCK_BIN}/wg" <<'MOCK_WG'
 MOCK_WG
 cat >"${MOCK_BIN}/nft" <<'MOCK_NFT'
 #!/usr/bin/env bash
+set -Eeuo pipefail
 [[ ${MOCK_NFT_ACTIVE:-true} == true ]] || exit 1
+if [[ ${1:-} == -j ]]; then
+  calls=$(wc -l <"${MOCK_NFT_JSON_CALLS}")
+  calls=$(( calls + 1 ))
+  printf '%s\n' "${calls}" >>"${MOCK_NFT_JSON_CALLS}"
+  packets=${calls}
+  bytes=$(( calls * 128 ))
+  verdict='"drop":null'
+  unrelated_comment=WARP_ALLOW_ESTABLISHED
+  if [[ ${MOCK_NFT_MODE:-stable} == verdict-change && ${calls} -ge 2 ]]; then
+    verdict='"accept":null'
+  elif [[ ${MOCK_NFT_MODE:-stable} == unrelated-change && ${calls} -ge 2 ]]; then
+    unrelated_comment=WARP_ALLOW_ESTABLISHED_CHANGED
+  fi
+  cat <<JSON
+{"nftables":[{"metainfo":{"json_schema_version":1}},{"table":{"family":"inet","name":"warp_gateway"}},{"chain":{"family":"inet","table":"warp_gateway","name":"forward","type":"filter","hook":"forward","prio":0,"policy":"drop"}},{"rule":{"family":"inet","table":"warp_gateway","chain":"forward","handle":7,"expr":[{"match":{"op":"==","left":{"meta":{"key":"iifname"}},"right":"eth1"}},{"match":{"op":"!=","left":{"meta":{"key":"oifname"}},"right":"warp0"}},{"counter":{"packets":${packets},"bytes":${bytes}}},{${verdict}}],"comment":"WARP_KILL_SWITCH"}},{"rule":{"family":"inet","table":"warp_gateway","chain":"forward","handle":8,"expr":[{"match":{"op":"==","left":{"ct":{"key":"state"}},"right":["established","related"]}},{"accept":null}],"comment":"${unrelated_comment}"}}]}
+JSON
+  exit 0
+fi
 cat <<'NFT'
 table inet warp_gateway { chain forward { iifname "eth1" oifname != "warp0" counter drop comment "WARP_KILL_SWITCH" } }
 NFT
@@ -114,15 +136,74 @@ connected_state
 sed -i '/^100:/d' "${MOCK_RULES}"
 main_before=$(cat "${MOCK_MAIN}")
 nft_before=$(nft list table inet warp_gateway)
+: >"${MOCK_NFT_JSON_CALLS}"
+MOCK_NFT_MODE=counter-advance
+export MOCK_NFT_MODE
 repair=$(printf '{}\n' | "${ROOT}/native/scripts/web-routing-repair.sh")
 [[ ${repair} == *'"ok":true'* && ${repair} == *'"changed":true'* && ${repair} == *'"before":"source_rule_missing"'* ]]
+[[ ${repair} == *'"killswitch_changed":false'* ]]
 [[ $(cat "${MOCK_MAIN}") == "${main_before}" ]]
 [[ $(nft list table inet warp_gateway) == "${nft_before}" ]]
 [[ $(grep -c '^restart ' "${MOCK_SYSTEMCTL_LOG}" || true) -eq 0 ]]
 repair=$(printf '{}\n' | "${ROOT}/native/scripts/web-routing-repair.sh")
 [[ ${repair} == *'"changed":false'* ]]
+MOCK_NFT_MODE=stable
+export MOCK_NFT_MODE
+
+# A real kill-switch semantic change is detected after routing repair.
+connected_state
+sed -i '/^100:/d' "${MOCK_RULES}"
+: >"${MOCK_NFT_JSON_CALLS}"
+MOCK_NFT_MODE=verdict-change
+export MOCK_NFT_MODE
+failed=$(printf '{}\n' | "${ROOT}/native/scripts/web-routing-repair.sh")
+[[ ${failed} == *'"ok":false'* && ${failed} == *'"code":"postcondition_failed"'* ]]
+
+# An unrelated project-table semantic change is detected as well.
+connected_state
+sed -i '/^100:/d' "${MOCK_RULES}"
+: >"${MOCK_NFT_JSON_CALLS}"
+MOCK_NFT_MODE=unrelated-change
+export MOCK_NFT_MODE
+failed=$(printf '{}\n' | "${ROOT}/native/scripts/web-routing-repair.sh")
+[[ ${failed} == *'"ok":false'* && ${failed} == *'"code":"postcondition_failed"'* ]]
+MOCK_NFT_MODE=stable
+export MOCK_NFT_MODE
+
+# Missing kill switch refuses routing repair before any mutation.
+connected_state
+sed -i '/^100:/d' "${MOCK_RULES}"
+MOCK_NFT_ACTIVE=false
+export MOCK_NFT_ACTIVE
+rules_before=$(cat "${MOCK_RULES}")
+routes_before=$(cat "${MOCK_ROUTES}")
+failed=$(printf '{}\n' | "${ROOT}/native/scripts/web-routing-repair.sh")
+[[ ${failed} == *'"ok":false'* && ${failed} == *'"code":"unsafe_precondition"'* ]]
+[[ $(cat "${MOCK_RULES}") == "${rules_before}" && $(cat "${MOCK_ROUTES}") == "${routes_before}" ]]
+[[ $(cat "${MOCK_WG_STATE}") == up ]]
+MOCK_NFT_ACTIVE=true
+export MOCK_NFT_ACTIVE
 
 request='{"request_id":"0e2b7a20-e84c-4c1e-9eb8-a673be3d69d7","asserted_actor":"admin-example"}'
+
+# Noncanonical intent actors are rejected before intent or dataplane mutation.
+rm -rf "${WARP_RUNTIME_STATE_TEST_DIR}"
+connected_state
+rules_before=$(cat "${MOCK_RULES}")
+routes_before=$(cat "${MOCK_ROUTES}")
+stop_before=$(grep -c '^stop ' "${MOCK_SYSTEMCTL_LOG}" || true)
+actor_129=$(printf '%129s' '')
+actor_129=${actor_129// /a}
+for actor in 'Admin User' 'admin"quoted' 'admin\backslash' $'admin\tcontrol' "${actor_129}"; do
+  invalid_request=$("${PYTHON3_BIN}" -c 'import json,sys; print(json.dumps({"request_id":"0e2b7a20-e84c-4c1e-9eb8-a673be3d69d7","asserted_actor":sys.argv[1]},separators=(",",":")))' "${actor}")
+  failed=$(printf '%s\n' "${invalid_request}" | "${ROOT}/native/scripts/web-warp-disconnect.sh")
+  [[ ${failed} == *'"ok":false'* && ${failed} == *'"code":"unsafe_precondition"'* ]]
+  [[ ! -e ${WARP_RUNTIME_STATE_TEST_DIR}/intentional-disconnect.json ]]
+  [[ $(cat "${MOCK_RULES}") == "${rules_before}" && $(cat "${MOCK_ROUTES}") == "${routes_before}" ]]
+  [[ $(cat "${MOCK_WG_STATE}") == up ]]
+  [[ $(grep -c '^stop ' "${MOCK_SYSTEMCTL_LOG}" || true) -eq ${stop_before} ]]
+done
+
 disconnect=$(printf '%s\n' "${request}" | "${ROOT}/native/scripts/web-warp-disconnect.sh")
 [[ ${disconnect} == *'"state":"intentionally_disconnected"'* && ${disconnect} == *'"already_disconnected":false'* ]]
 [[ -f ${WARP_RUNTIME_STATE_TEST_DIR}/intentional-disconnect.json ]]

@@ -4,12 +4,14 @@ WEB_OPERATION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if [[ ${WARP_WEB_OPERATION_TEST_MODE:-0} == 1 && ${EUID} -ne 0 ]]; then
   WEB_OPERATION_TEST_MODE=1
   WEB_INTENT_TOOL=${WEB_OPERATION_DIR}/runtime-state-intent.py
+  WEB_NFT_SNAPSHOT_TOOL=${WEB_OPERATION_DIR}/nft-semantic-snapshot.py
 else
   WEB_OPERATION_TEST_MODE=0
   PATH=/usr/sbin:/usr/bin:/sbin:/bin
   export PATH
   # shellcheck disable=SC2034 # consumed by the sourcing disconnect adapter
   WEB_INTENT_TOOL=/usr/local/lib/warp-egress-gateway/runtime-state-intent.py
+  WEB_NFT_SNAPSHOT_TOOL=/usr/local/lib/warp-egress-gateway/nft-semantic-snapshot.py
 fi
 
 # shellcheck source=common.sh
@@ -57,7 +59,8 @@ web_main_default_snapshot() {
 }
 
 web_nft_snapshot() {
-  nft list table inet "${NFT_TABLE}" 2>/dev/null
+  nft -j list table inet "${NFT_TABLE}" 2>/dev/null \
+    | "${RUNTIME_STATE_PYTHON}" -I "${WEB_NFT_SNAPSHOT_TOOL}"
 }
 
 web_wg_activation_snapshot() {

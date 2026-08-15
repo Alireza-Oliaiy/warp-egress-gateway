@@ -27,7 +27,9 @@ required=(
   native/scripts/route-repair.sh
   native/scripts/runtime-state.sh
   native/scripts/runtime-state-validate.py
+  native/scripts/runtime-state-schema.py
   native/scripts/runtime-state-intent.py
+  native/scripts/nft-semantic-snapshot.py
   native/scripts/web-operation-lib.sh
   native/scripts/web-routing-repair.sh
   native/scripts/web-health-run.sh
@@ -43,6 +45,7 @@ required=(
   tests/helper.sh
   tests/helper_test.py
   tests/intent_writer_test.py
+  tests/nft_semantic_snapshot_test.py
   tests/web-mutations.sh
   web/helper/warp-web-helper.py
   tests/run-all.sh
@@ -72,9 +75,13 @@ import sys
 root = Path(sys.argv[1])
 for relative in (
     "native/scripts/runtime-state-validate.py",
+    "native/scripts/runtime-state-schema.py",
     "native/scripts/runtime-state-intent.py",
+    "native/scripts/nft-semantic-snapshot.py",
     "web/helper/warp-web-helper.py",
     "tests/helper_test.py",
+    "tests/intent_writer_test.py",
+    "tests/nft_semantic_snapshot_test.py",
 ):
     path = root / relative
     compile(path.read_text(encoding="utf-8"), str(path), "exec")

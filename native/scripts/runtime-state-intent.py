@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import stat
 import sys
 import tempfile
@@ -17,10 +18,11 @@ import uuid
 
 MAX_INPUT_BYTES = 4096
 MAX_INTENT_BYTES = 4096
-ACTOR_RE = re.compile(r"[\x20-\x7e]{1,128}\Z")
 INTENT_FIELDS = {"version", "state", "created_at", "request_id", "actor"}
 INPUT_FIELDS = {"request_id", "asserted_actor"}
 RFC3339_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+SCHEMA = runpy.run_path(str(Path(__file__).with_name("runtime-state-schema.py")))
+intent_actor_is_valid = SCHEMA["intent_actor_is_valid"]
 
 
 class IntentError(Exception):
@@ -102,7 +104,7 @@ def parse_input(raw: bytes) -> dict[str, str]:
         raise IntentInputError()
     request_id = parse_uuid4(value["request_id"])
     actor = value["asserted_actor"]
-    if type(actor) is not str or not ACTOR_RE.fullmatch(actor):
+    if not intent_actor_is_valid(actor):
         raise IntentInputError()
     return {"request_id": request_id, "asserted_actor": actor}
 
@@ -119,7 +121,7 @@ def validate_intent_value(value: Any) -> dict[str, Any]:
     if type(value["created_at"]) is not str or not RFC3339_RE.fullmatch(value["created_at"]):
         raise IntentConflict()
     parse_uuid4(value["request_id"])
-    if type(value["actor"]) is not str or not ACTOR_RE.fullmatch(value["actor"]):
+    if not intent_actor_is_valid(value["actor"]):
         raise IntentConflict()
     return value
 
@@ -194,7 +196,7 @@ def create_intent(runtime: IntentRuntime, payload: dict[str, str]) -> dict[str, 
         return {"created": False, "since": existing["created_at"]}
     request_id = parse_uuid4(payload.get("request_id"))
     actor = payload.get("asserted_actor")
-    if type(actor) is not str or not ACTOR_RE.fullmatch(actor):
+    if not intent_actor_is_valid(actor):
         raise IntentInputError()
     created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     value = {

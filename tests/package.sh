@@ -25,12 +25,14 @@ for required in \
   VERSION LICENSE README.md README.fa.md CHANGELOG.md setup.sh upgrade.sh rollback.sh \
   native/install.sh docker/setup.sh shared/upgrade/remote-upgrade.sh \
   native/scripts/runtime-state.sh native/scripts/runtime-state-validate.py \
-  native/scripts/runtime-state-intent.py native/scripts/web-operation-lib.sh \
+  native/scripts/runtime-state-schema.py native/scripts/runtime-state-intent.py \
+  native/scripts/nft-semantic-snapshot.py native/scripts/web-operation-lib.sh \
   native/scripts/web-routing-repair.sh native/scripts/web-health-run.sh \
   native/scripts/web-warp-disconnect.sh \
   web/helper/warp-web-helper.py docs/upgrade.md docs/security.md \
   tests/runtime-state.sh tests/helper.sh tests/helper_test.py \
-  tests/intent_writer_test.py tests/web-mutations.sh tests/syntax.sh \
+  tests/intent_writer_test.py tests/nft_semantic_snapshot_test.py \
+  tests/web-mutations.sh tests/syntax.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
   grep -qx "${NAME}/${required}" "${tar_list}" || {
     echo "Packaged TAR is missing required file: ${required}" >&2; exit 1;
@@ -58,7 +60,9 @@ required = {
     f'{name}/upgrade.sh', f'{name}/rollback.sh', f'{name}/native/install.sh',
     f'{name}/native/scripts/runtime-state.sh',
     f'{name}/native/scripts/runtime-state-validate.py',
+    f'{name}/native/scripts/runtime-state-schema.py',
     f'{name}/native/scripts/runtime-state-intent.py',
+    f'{name}/native/scripts/nft-semantic-snapshot.py',
     f'{name}/native/scripts/web-operation-lib.sh',
     f'{name}/native/scripts/web-routing-repair.sh',
     f'{name}/native/scripts/web-health-run.sh',
@@ -69,6 +73,7 @@ required = {
     f'{name}/tests/syntax.sh',
     f'{name}/tests/runtime-state.sh', f'{name}/tests/helper.sh',
     f'{name}/tests/helper_test.py', f'{name}/tests/intent_writer_test.py',
+    f'{name}/tests/nft_semantic_snapshot_test.py',
     f'{name}/tests/web-mutations.sh',
     f'{name}/docker/generated/.gitkeep',
     f'{name}/docker/state/.gitkeep',

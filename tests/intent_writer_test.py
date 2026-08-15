@@ -13,12 +13,13 @@ import unittest
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 WRITER_PATH = ROOT / "native" / "scripts" / "runtime-state-intent.py"
+VALIDATOR_PATH = ROOT / "native" / "scripts" / "runtime-state-validate.py"
 
 
-def load_writer():
-    spec = importlib.util.spec_from_file_location("runtime_state_intent", WRITER_PATH)
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("unable to load intent writer")
+        raise RuntimeError(f"unable to load {name}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -31,7 +32,8 @@ class IntentWriterTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "runtime"
         self.root.mkdir(mode=0o700)
-        self.writer = load_writer()
+        self.writer = load_module("runtime_state_intent", WRITER_PATH)
+        self.validator = load_module("runtime_state_validate", VALIDATOR_PATH)
         self.runtime = self.writer.IntentRuntime(
             directory=self.root,
             intent_path=self.root / "intentional-disconnect.json",
@@ -77,6 +79,37 @@ class IntentWriterTests(unittest.TestCase):
                 with self.assertRaises(self.writer.IntentInputError):
                     self.writer.parse_input(raw)
         self.assertFalse(self.runtime.intent_path.exists())
+
+    def test_canonical_actor_grammar_and_writer_validator_parity(self) -> None:
+        valid_actors = [
+            "admin-example",
+            "user.name@example",
+            "a" + "x" * 127,
+        ]
+        for actor in valid_actors:
+            with self.subTest(actor=actor[:32], length=len(actor)):
+                payload = {**self.payload, "asserted_actor": actor}
+                encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                self.assertEqual(self.writer.parse_input(encoded), payload)
+                self.writer.create_intent(self.runtime, payload)
+                self.validator.validate_path(self.runtime.intent_path)
+                self.runtime.intent_path.unlink()
+
+    def test_noncanonical_actor_is_rejected_before_intent_creation(self) -> None:
+        invalid_actors = [
+            "Admin User",
+            'admin"quoted',
+            "admin\\backslash",
+            "admin\tcontrol",
+            "a" * 129,
+        ]
+        for actor in invalid_actors:
+            with self.subTest(actor=repr(actor[:32]), length=len(actor)):
+                payload = {**self.payload, "asserted_actor": actor}
+                encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                with self.assertRaises(self.writer.IntentInputError):
+                    self.writer.parse_input(encoded)
+                self.assertFalse(self.runtime.intent_path.exists())
 
     def test_existing_valid_record_is_idempotent_and_never_rewritten(self) -> None:
         first = self.writer.create_intent(self.runtime, self.payload)
