@@ -67,9 +67,10 @@ review and documentation update before code changes.
   `/run/warp-egress-gateway/intentional-disconnect.json` path.
 - The intent directory is root-owned mode `0700`; the atomic record is
   root-owned mode `0600` and cannot be written/deleted by `warp-web`.
+- Disconnect first acquires the fixed shared root mutation lock, then validates
+  configuration and kill-switch state, creates or revalidates intent, performs
+  every mutation, and verifies final postconditions before releasing the lock.
 - Kill-switch validity is verified before the intent or dataplane is changed.
-- Intent is established before automatic recovery is suppressed and before
-  routing/WireGuard are stopped.
 - Intentional disconnect removes only project-owned policy rules and the WARP
   table default, stops WARP as appropriate, and leaves the nftables kill switch
   active.
@@ -78,6 +79,10 @@ review and documentation update before code changes.
 - The host main/default route is captured and verified unchanged.
 - Health and monitor logic distinguish intentional disconnect from failure and
   never repair/restart WARP while valid or unsafe/corrupt intent exists.
+- Health and monitor timers remain enabled and active. They report
+  `intentionally_disconnected` as a successful observation, verify kill switch
+  active, routing absent, WireGuard stopped, direct management alive, and
+  transit blocked, and do not make their systemd units fail for this state.
 - A partial disconnect failure leaves intent/recovery suppression active and
   remains fail closed.
 - Reboot clears `/run` intent and permits the established fail-closed boot
@@ -86,12 +91,31 @@ review and documentation update before code changes.
 - The initial web UI/API has no reconnect operation and no kill-switch-disable
   operation.
 
+### Shared root mutation lock
+
+- `/run/warp-egress-gateway/mutation.lock` is the single stable root-owned mode
+  `0600` exclusive lock for the boot; its parent is root-owned mode `0700`.
+- Periodic and manual health recovery, helper routing repair, disconnect,
+  route-up/policy activation, and any future explicit reconnect/start use this
+  same host lock. Application-process serialization is not sufficient.
+- Lock acquisition is bounded to five seconds. Timeout returns structured
+  `mutation_busy`, makes no mutation, and never falls back to unlocked work.
+- Every recovery path acquires the lock and re-reads intent and safety evidence
+  under it immediately before mutation. Valid, corrupt, unsafe, or inconsistent
+  intent forbids recovery.
+- Route-up and repeated project route service starts refuse to apply routing
+  while intent exists. Reboot clears `/run`, allowing normal fail-closed boot.
+- The firewall guard remains independent: it installs fail-closed nftables
+  safety and never waits on this WARP/routing mutation lock.
+
 ### Routing repair and health
 
 - Routing repair uses the existing v0.4.1 policy-only model.
 - It requires valid trusted configuration, expected WARP interface/WireGuard
   state, WARP IPv4, active semantic kill switch, and no intentional-disconnect
   intent.
+- Repair and recovery hold the shared root lock through exact postconditions;
+  intent absence observed before locking is never sufficient.
 - It may change only the configured source rule priority, transit-ingress rule
   priority, and default route in the configured WARP table.
 - It never changes the main/default route, unrelated rule priorities/routes,
@@ -122,8 +146,8 @@ review and documentation update before code changes.
   and JSON content type. State-changing GET requests do not exist.
 - Login rate limiting covers normalized account, source, and global pressure;
   errors do not reveal account existence.
-- Mutations are serialized, rate limited, audited, and protected by scoped
-  UUID idempotency keys.
+- Mutations are serialized by the shared root lock, rate limited, audited, and
+  protected by scoped UUID idempotency keys.
 
 ### TLS and exposure
 
@@ -167,8 +191,15 @@ review and documentation update before code changes.
 ### Auditing
 
 - Application and helper both emit structured events linked by request ID.
-- Events include timestamp, authenticated user, role, source IP, sudo caller,
-  operation, target class, result, stable failure reason, and duration.
+- Helper protocol v1 carries exactly one bounded top-level `audit_context` with
+  `asserted_actor`, `asserted_role` (`Viewer` or `Admin`), and
+  `asserted_source_ip`.
+- These `asserted_*` values are untrusted audit-only data. They never affect
+  authorization, verb selection, commands, files, arguments, interfaces,
+  executables, environment, or safety decisions.
+- Helper events use the `asserted_*` names and also record authoritative
+  effective root identity, verified sudo caller `warp-web`, fixed helper and
+  protocol, validated verb, result, stable failure reason, and duration.
 - Mutations record bounded before/after safety state.
 - Passwords/hashes, cookies, session/CSRF tokens, authorization headers,
   private/preshared keys, account secrets, and TLS private keys are never logged.
@@ -188,6 +219,23 @@ review and documentation update before code changes.
 8. `PrivateKey` and account secrets never cross the API/log/UI boundary.
 9. UI state is based on actual dataplane evidence, not only systemd activity.
 10. Existing CLI remains available and authoritative without the console.
+11. No WARP/routing mutation occurs without the shared root lock.
+12. Intent is rechecked under lock immediately before any recovery mutation.
+
+### Mandatory concurrency and intent tests
+
+- healthcheck already running when disconnect begins;
+- disconnect running when the health timer fires;
+- routing repair racing health recovery;
+- repeated route service start while intent exists;
+- health timer stays active while intentionally disconnected;
+- monitor stays active while intentionally disconnected;
+- health returns `intentionally_disconnected` without a failed unit;
+- lock timeout never permits unlocked mutation;
+- intent is rechecked under lock immediately before recovery;
+- route-up cannot reapply while intent exists;
+- reboot-cleared `/run` restores normal boot;
+- asserted audit metadata cannot affect authorization or command construction.
 
 ## DEFERRED
 

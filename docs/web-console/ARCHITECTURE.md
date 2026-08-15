@@ -152,8 +152,17 @@ recovery was `none`, `policy`, or `tunnel`.
 
 When intentional-disconnect intent is active, both periodic health and an
 explicit health run must return `intentionally_disconnected` without applying
-routing or restarting WireGuard. The passive monitor may continue collecting
-direct-path and kill-switch evidence, but it must not attempt recovery.
+routing or restarting WireGuard. Health and monitor timers remain active: this
+is a successful observation state, not a failed systemd service. They continue
+to prove that the kill switch is active, project routing is absent, WireGuard
+is stopped, direct management is alive, and transit is blocked.
+
+Every path that can mutate WARP or project routing shares one root-side
+exclusive lock at `/run/warp-egress-gateway/mutation.lock`. A health run may
+collect evidence without the lock, but before recovery it must acquire the lock
+and re-read the intent record and safety evidence while holding it. Valid,
+corrupt, unsafe, or inconsistent intent forbids recovery. A five-second lock
+timeout produces a structured `mutation_busy` result and no mutation.
 
 ## Policy-routing repair
 
@@ -177,6 +186,13 @@ nftables table, WireGuard lifecycle, host network management, or forwarding.
 It verifies the exact state after applying it. A missing safety prerequisite
 causes refusal with no routing mutation.
 
+The routing activation path (`route-up`), periodic and manual health recovery,
+and helper repair all acquire the same root lock and re-read intent under that
+lock immediately before mutation. Route activation, including repeated
+systemd starts, is an intentional no-op while intent exists. The firewall guard
+is independent: it continues installing the fail-closed safety policy and does
+not wait for this routing lock.
+
 ## Intentional disconnect
 
 ### Runtime intent record
@@ -193,6 +209,10 @@ version, state, creation time, request ID, and sanitized actor identifier.
 `warp-web` cannot create, replace, truncate, or delete it. It learns intent
 state only through helper responses.
 
+The same root-owned runtime directory contains `mutation.lock`, a stable mode
+`0600` lock object. It is never unlinked or replaced while runtime services may
+be active, avoiding split-lock inodes. `warp-web` cannot open it for writing.
+
 The record is stored under `/run`, so reboot clears it. A future explicit CLI
 `start`/`reconnect` path may clear it as part of a guarded reconnect sequence.
 The initial UI has no reconnect operation.
@@ -201,12 +221,15 @@ The initial UI has no reconnect operation.
 
 `warp-disconnect` follows this order:
 
-1. Validate configuration and capture the main default-route identity for
-   postcondition comparison.
-2. Verify the semantic kill switch is active. If it is absent or invalid,
+1. Acquire the shared root mutation lock, or return `mutation_busy` after five
+   seconds without changing intent, routing, or WireGuard.
+2. While holding the lock, validate configuration, revalidate any existing
+   intent, and capture the main default-route identity for comparison.
+3. Verify the semantic kill switch is active. If it is absent or invalid,
    refuse without changing intent, routing, or WireGuard.
-3. Atomically create the intentional-disconnect record.
-4. Stop/suppress automatic health recovery before taking down the path.
+4. Atomically create the intentional-disconnect record, or prove an existing
+   valid record and matching live state for idempotent success. Corrupt, unsafe,
+   or inconsistent intent causes a fail-closed refusal.
 5. Stop the project routing service so its existing stop behavior removes the
    two project-owned rules and flushes only the project WARP table.
 6. Stop the configured `wg-quick` WARP unit. Do not stop or remove the firewall
@@ -215,7 +238,12 @@ The initial UI has no reconnect operation.
    absent, the WARP interface is stopped as intended, the kill switch remains
    active, and the main default route is byte-for-byte equivalent in semantic
    fields to the captured route.
-8. Return structured state and record an audit event.
+8. Return structured state and record an audit event, then release the lock.
+
+The lock remains held through every mutation and the final postcondition
+checks. Health and monitor timers are never stopped or disabled by disconnect;
+their recovery branches acquire the same lock, re-read intent, and decline to
+mutate.
 
 The monitor remains available to report direct management and safety state.
 Transit traffic entering `TRANSIT_IF` has no WARP policy path and is blocked by
@@ -229,10 +257,12 @@ make the action appear successful.
 ### Reconnect and reboot
 
 Reconnection is not an initial web control. A future explicit CLI operation
-must verify/install the firewall guard, start WireGuard, apply and verify
-policy routing, prove `warp=on`, and only then clear or transition the intent
-record. Clearing the record before safety and dataplane verification is
-forbidden.
+must acquire the same lock, validate and transition intent through a fixed
+root-controlled reconnect state, verify/install the firewall guard, start
+WireGuard, apply and verify policy routing, prove `warp=on`, and only then clear
+the intent record. The transition is not a generic route-up bypass and accepts
+no caller-controlled override. Clearing the record before safety and dataplane
+verification is forbidden.
 
 Normal reboot clears `/run`; existing enabled units then follow the established
 fail-closed boot order. A persistent disconnect-across-reboot feature is
@@ -304,8 +334,9 @@ messages do not disclose whether an account exists.
 - Helper input is at most 8 KiB. Structured output is at most 256 KiB.
 - Log responses contain at most 500 records, cover at most seven days, and are
   truncated explicitly rather than silently.
-- Concurrent mutating operations are serialized. A second conflicting action
-  receives `409 Conflict`.
+- All root WARP/routing mutations are serialized by the fixed shared runtime
+  lock, including non-web timers and systemd activation. A five-second timeout
+  returns structured `mutation_busy` (`423 Locked`) and never mutates unlocked.
 - Browser/API request bodies and headers have fixed limits. Slow headers,
   bodies, and idle connections time out.
 - Status failure never blocks the dataplane and never triggers recovery.

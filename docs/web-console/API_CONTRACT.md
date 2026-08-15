@@ -43,6 +43,24 @@ Authorization is checked before a privileged helper call. A helper request is
 still treated as hostile and independently constrained; role checks do not make
 helper input trusted.
 
+The internal helper protocol v1 envelope carries a bounded top-level audit
+object:
+
+```json
+"audit_context": {
+  "asserted_actor": "admin-example",
+  "asserted_role": "Admin",
+  "asserted_source_ip": "127.0.0.1"
+}
+```
+
+These `asserted_*` values are untrusted audit context only. They never affect
+authorization, the validated verb, command construction, paths, arguments,
+interfaces, executables, environment, or safety decisions. Authoritative
+helper identity comes from effective root, the verified sudo caller
+`warp-web`, the fixed helper entry point, protocol, and validated verb.
+`asserted_role` accepts only the literal enum `Viewer` or `Admin`.
+
 ## Response envelopes
 
 Success:
@@ -75,6 +93,10 @@ Error:
 Messages are stable, non-secret summaries. `details` contains enumerated fields
 only, never raw child output or stack traces.
 
+A lock conflict uses the stable code `mutation_busy`, includes
+`retry_after_seconds: 1`, and sets `Retry-After: 1`. It is never retried by
+performing an unlocked mutation.
+
 ## Common HTTP status codes
 
 | Status | Meaning |
@@ -86,7 +108,7 @@ only, never raw child output or stack traces.
 | 404 | Fixed API resource does not exist; never used to expose host paths/units. |
 | 409 | Conflicting action, reused idempotency key, or intentional state conflicts with the request. |
 | 422 | Well-formed request violates a documented enum/range/schema. |
-| 423 | Another mutating gateway action holds the operation lock. |
+| 423 | The shared root mutation lock was not acquired within five seconds; no mutation occurred. |
 | 429 | Authentication or request rate limit exceeded. |
 | 502 | Helper failed, returned invalid schema, or an approved fixed dependency failed unexpectedly. |
 | 503 | Gateway safety/configuration precondition failed or a partial action remained fail closed. |
@@ -241,6 +263,11 @@ Stale evidence sets state to `degraded` or `failed` according to the configured
 sampling interval and whether live safety evidence is available. Intentional
 disconnect is reported without triggering recovery.
 
+During intentional disconnect, health and monitor timers remain active. Their
+evidence must show the kill switch active, project routing absent, WireGuard
+stopped, direct management alive, and transit blocked. This is a successful
+`intentionally_disconnected` observation, not a failed health unit.
+
 ## `GET /api/v1/routing`
 
 - **Role:** Viewer
@@ -385,6 +412,11 @@ When root-owned intentional-disconnect intent is active, the operation returns
 repair/restart. A malformed intent or missing kill switch returns 503 and
 remains fail closed.
 
+If recovery is indicated, health acquires the shared root mutation lock and
+then re-reads intent and safety evidence immediately before mutation. Any
+valid, corrupt, unsafe, or inconsistent intent refuses recovery. Lock timeout
+returns 423 `mutation_busy` and performs no mutation.
+
 ## `POST /api/v1/routing/repair`
 
 - **Role:** Admin
@@ -410,6 +442,10 @@ configuration, WARP interface, WARP IPv4, WireGuard, or kill-switch
 prerequisites fail. It cannot restart WireGuard, change the main default,
 disable the kill switch, or touch unrelated rules/routes.
 
+Repair holds the shared root mutation lock through its postcondition checks.
+It re-reads intent after acquiring the lock. A lock timeout returns 423
+`mutation_busy`; it never proceeds unlocked.
+
 ## `POST /api/v1/warp/disconnect`
 
 - **Role:** Admin
@@ -433,6 +469,8 @@ disable the kill switch, or touch unrelated rules/routes.
   "transit_behavior": "blocked",
   "main_default_changed": false,
   "automatic_recovery_suppressed": true,
+  "health_timer_active": true,
+  "monitor_timer_active": true,
   "reconnect": {
     "available_in_web": false,
     "cleared_by_reboot": true,
@@ -446,6 +484,13 @@ with 503 and changes nothing. If a later postcondition fails, it returns 503
 with `state=failed`, leaves intent active, leaves recovery suppressed, and
 reports only structured postcondition codes. It never deletes/replaces the
 kill switch or enables transit fallback.
+
+Disconnect first acquires the shared root mutation lock, then validates trusted
+configuration and kill-switch state, creates or revalidates intent, performs
+the routing/WireGuard changes, and verifies final postconditions before
+releasing the lock. A five-second acquisition timeout returns 423
+`mutation_busy` with no mutation. Health and monitor timers remain enabled;
+their recovery branches acquire the same lock and re-read intent.
 
 There is no kill-switch-disable endpoint and no equivalent hidden action.
 
@@ -527,6 +572,12 @@ Security-sensitive requests produce structured events:
 Audit serialization treats all strings as data. Passwords, hashes, cookies,
 session/CSRF tokens, authorization headers, WireGuard private/preshared keys,
 WARP account data, and TLS private keys are forbidden fields.
+
+This application event uses the human-facing names above. The corresponding
+root helper event names all web-supplied identity fields `asserted_actor`,
+`asserted_role`, and `asserted_source_ip`; they remain untrusted audit-only
+data and are recorded alongside authoritative effective UID, sudo caller,
+fixed helper/protocol, and validated verb.
 
 ## Browser security response headers
 
