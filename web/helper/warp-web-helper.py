@@ -480,6 +480,20 @@ def strict_json_object(raw: bytes) -> dict[str, Any]:
     return value
 
 
+def strict_route_array(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        value = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=lambda _value: (_ for _ in ()).throw(InvalidRequest()),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, InvalidRequest) as exc:
+        raise QueryFailed() from exc
+    if type(value) is not list or any(type(route) is not dict for route in value):
+        raise QueryFailed()
+    return value
+
+
 def validate_adapter_data(verb: str, data: Any) -> dict[str, Any]:
     if type(data) is not dict:
         raise HelperError("invalid_adapter_response", "A fixed adapter returned invalid structured data.", 5)
@@ -668,11 +682,19 @@ def routing_status(runtime: HelperRuntime) -> dict[str, Any]:
         for tokens in ingress_candidates
     )
 
-    route_output = run_fixed_command(
-        runtime, ("-4", "route", "show", "table", table_id, "default")
-    ).decode("utf-8")
-    route_lines = [line.split() for line in route_output.splitlines() if line.strip()]
-    route_matches = sum(tokens == ["default", "dev", warp_if] for tokens in route_lines)
+    route_objects = strict_route_array(
+        run_fixed_command(
+            runtime, ("-j", "-4", "route", "show", "table", table_id, "default")
+        )
+    )
+    forbidden_route_fields = {"gateway", "via", "nexthops", "nhid"}
+    route_matches = sum(
+        route.get("dst") == "default"
+        and route.get("dev") == warp_if
+        and route.get("type", "unicast") == "unicast"
+        and forbidden_route_fields.isdisjoint(route)
+        for route in route_objects
+    )
 
     main_output = run_fixed_command(
         runtime, ("-4", "route", "show", "table", "main", "default")
@@ -681,7 +703,7 @@ def routing_status(runtime: HelperRuntime) -> dict[str, Any]:
 
     source_state = component_state(len(source_candidates), source_matches)
     ingress_state = component_state(len(ingress_candidates), ingress_matches)
-    route_state = component_state(len(route_lines), route_matches)
+    route_state = component_state(len(route_objects), route_matches)
     overall = "ok" if warp_ipv4 and {source_state, ingress_state, route_state} == {"ok"} else "failed"
     return {
         "state": overall,
@@ -702,7 +724,7 @@ def routing_status(runtime: HelperRuntime) -> dict[str, Any]:
         "warp_default": {
             "table_id": int(table_id),
             "expected_interface": warp_if,
-            "actual_count": len(route_lines),
+            "actual_count": len(route_objects),
             "state": route_state,
         },
         "main_default": {

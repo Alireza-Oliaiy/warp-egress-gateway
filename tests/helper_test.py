@@ -71,9 +71,50 @@ elif args == ['-4', 'rule', 'show']:
         raise SystemExit(2)
     print('100: from 192.0.2.2 lookup warp_gateway')
     print('110: from all iif eth1 lookup warp_gateway')
-elif args == ['-4', 'route', 'show', 'table', '100', 'default']:
-    if mode != 'route_missing':
-        print('default dev warp0')
+elif args == ['-j', '-4', 'route', 'show', 'table', '100', 'default']:
+    route_outputs = {
+        'route_missing': [],
+        'route_duplicate': [
+            {'dst': 'default', 'dev': 'warp0'},
+            {'dst': 'default', 'dev': 'warp0'},
+        ],
+        'route_wrong_device': [{'dst': 'default', 'dev': 'eth0'}],
+        'route_gateway': [
+            {'dst': 'default', 'gateway': '192.0.2.1', 'dev': 'warp0'},
+        ],
+        'route_via': [
+            {'dst': 'default', 'via': {'family': 'inet', 'host': '192.0.2.1'}, 'dev': 'warp0'},
+        ],
+        'route_nexthops': [
+            {'dst': 'default', 'dev': 'warp0', 'nexthops': [{'dev': 'warp0'}]},
+        ],
+        'route_nhid': [{'dst': 'default', 'dev': 'warp0', 'nhid': 7}],
+        'route_non_unicast': [
+            {'type': 'blackhole', 'dst': 'default', 'dev': 'warp0'},
+        ],
+        'route_wrong_dst': [{'dst': '192.0.2.0/24', 'dev': 'warp0'}],
+        'route_scope_link': [
+            {'dst': 'default', 'dev': 'warp0', 'scope': 'link'},
+        ],
+        'route_metadata': [
+            {
+                'dst': 'default',
+                'dev': 'warp0',
+                'type': 'unicast',
+                'protocol': 'static',
+                'scope': 'link',
+                'prefsrc': '192.0.2.2',
+                'metric': 50,
+                'flags': [],
+            },
+        ],
+    }
+    if mode == 'route_malformed':
+        print('[{"dst":"default"')
+    elif mode == 'route_duplicate_key':
+        print('[{"dst":"default","dev":"warp0","dev":"warp0"}]')
+    else:
+        print(json.dumps(route_outputs.get(mode, [{'dst': 'default', 'dev': 'warp0'}])))
 elif args == ['-4', 'route', 'show', 'table', 'main', 'default']:
     print('default via 203.0.113.1 dev eth0')
 else:
@@ -239,6 +280,46 @@ ENABLE_IPV6_TRANSIT="false"
         encoded = json.dumps(response)
         self.assertNotIn("default via 203.0.113.1", encoded)
         self.assertNotIn("from all iif", encoded)
+
+    def test_routing_status_accepts_semantically_valid_direct_defaults(self) -> None:
+        for mode in ("healthy", "route_scope_link", "route_metadata"):
+            with self.subTest(mode=mode):
+                self.mode.write_text(mode, encoding="ascii")
+                code, response = self.call(self.request("routing-status"))
+                self.assertEqual(code, 0)
+                self.assertEqual(response["data"]["state"], "ok")
+                self.assertEqual(response["data"]["warp_default"]["actual_count"], 1)
+                self.assertEqual(response["data"]["warp_default"]["state"], "ok")
+
+    def test_routing_status_rejects_unsafe_or_ambiguous_default_routes(self) -> None:
+        cases = {
+            "route_missing": "missing",
+            "route_duplicate": "mismatch",
+            "route_wrong_device": "mismatch",
+            "route_gateway": "mismatch",
+            "route_via": "mismatch",
+            "route_nexthops": "mismatch",
+            "route_nhid": "mismatch",
+            "route_non_unicast": "mismatch",
+            "route_wrong_dst": "mismatch",
+        }
+        for mode, expected_state in cases.items():
+            with self.subTest(mode=mode):
+                self.mode.write_text(mode, encoding="ascii")
+                code, response = self.call(self.request("routing-status"))
+                self.assertEqual(code, 0)
+                self.assertEqual(response["data"]["state"], "failed")
+                self.assertEqual(
+                    response["data"]["warp_default"]["state"], expected_state
+                )
+
+    def test_routing_status_rejects_untrusted_route_json(self) -> None:
+        for mode in ("route_malformed", "route_duplicate_key"):
+            with self.subTest(mode=mode):
+                self.mode.write_text(mode, encoding="ascii")
+                code, response = self.call(self.request("routing-status"))
+                self.assertNotEqual(code, 0)
+                self.assertEqual(response["error"]["code"], "query_failed")
 
     def test_missing_and_query_failure_are_distinct(self) -> None:
         self.mode.write_text("route_missing", encoding="ascii")
@@ -483,7 +564,7 @@ ENABLE_IPV6_TRANSIT="false"
             [
                 ["-4", "-o", "address", "show", "dev", "warp0", "scope", "global"],
                 ["-4", "rule", "show"],
-                ["-4", "route", "show", "table", "100", "default"],
+                ["-j", "-4", "route", "show", "table", "100", "default"],
                 ["-4", "route", "show", "table", "main", "default"],
             ],
         )
