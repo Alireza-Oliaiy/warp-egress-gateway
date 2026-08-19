@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Create a deterministic nftables fingerprint without runtime counters."""
+"""Create a deterministic nftables fingerprint without runtime counters or handles."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ def normalize(value: Any) -> Any:
     if type(value) is dict:
         result: dict[str, Any] = {}
         for key, item in value.items():
+            if key == "handle":
+                continue
             if key == "counter" and type(item) is dict:
                 result[key] = {
                     counter_key: normalize(counter_value)

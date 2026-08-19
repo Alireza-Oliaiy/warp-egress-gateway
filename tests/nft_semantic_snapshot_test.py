@@ -18,7 +18,7 @@ def ruleset_fixture() -> dict:
     return {
         "nftables": [
             {"metainfo": {"json_schema_version": 1}},
-            {"table": {"family": "inet", "name": "warp_gateway"}},
+            {"table": {"family": "inet", "name": "warp_gateway", "handle": 7}},
             {
                 "chain": {
                     "family": "inet",
@@ -28,6 +28,7 @@ def ruleset_fixture() -> dict:
                     "hook": "forward",
                     "prio": 0,
                     "policy": "drop",
+                    "handle": 8,
                 }
             },
             {
@@ -35,7 +36,7 @@ def ruleset_fixture() -> dict:
                     "family": "inet",
                     "table": "warp_gateway",
                     "chain": "forward",
-                    "handle": 7,
+                    "handle": 9,
                     "expr": [
                         {
                             "match": {
@@ -62,7 +63,7 @@ def ruleset_fixture() -> dict:
                     "family": "inet",
                     "table": "warp_gateway",
                     "chain": "postrouting",
-                    "handle": 8,
+                    "handle": 10,
                     "expr": [
                         {"match": {"op": "==", "left": {"payload": {"protocol": "ip", "field": "saddr"}}, "right": "198.51.100.1"}},
                         {"mangle": {"key": {"payload": {"protocol": "tcp", "field": "maxseg"}}, "value": 1360}},
@@ -90,12 +91,45 @@ class NftSemanticSnapshotTests(unittest.TestCase):
         self.assertRegex(fingerprint, re.compile(r"[0-9a-f]{64}\Z"))
         return fingerprint
 
-    def test_counter_packet_and_byte_changes_are_ignored(self) -> None:
+    def test_packet_counter_changes_are_ignored(self) -> None:
         before = ruleset_fixture()
         after = copy.deepcopy(before)
         counter = after["nftables"][3]["rule"]["expr"][2]["counter"]
         counter["packets"] = 9001
+        self.assertEqual(self.snapshot(before), self.snapshot(after))
+
+    def test_byte_counter_changes_are_ignored(self) -> None:
+        before = ruleset_fixture()
+        after = copy.deepcopy(before)
+        counter = after["nftables"][3]["rule"]["expr"][2]["counter"]
         counter["bytes"] = 987654321
+        self.assertEqual(self.snapshot(before), self.snapshot(after))
+
+    def test_rule_handle_changes_are_ignored(self) -> None:
+        before = ruleset_fixture()
+        after = copy.deepcopy(before)
+        after["nftables"][3]["rule"]["handle"] = 91
+        self.assertEqual(self.snapshot(before), self.snapshot(after))
+
+    def test_table_handle_changes_are_ignored(self) -> None:
+        before = ruleset_fixture()
+        after = copy.deepcopy(before)
+        after["nftables"][1]["table"]["handle"] = 71
+        self.assertEqual(self.snapshot(before), self.snapshot(after))
+
+    def test_chain_handle_changes_are_ignored(self) -> None:
+        before = ruleset_fixture()
+        after = copy.deepcopy(before)
+        after["nftables"][2]["chain"]["handle"] = 81
+        self.assertEqual(self.snapshot(before), self.snapshot(after))
+
+    def test_live_reboot_handle_renumbering_is_ignored(self) -> None:
+        before = ruleset_fixture()
+        after = copy.deepcopy(before)
+        after["nftables"][1]["table"]["handle"] = 6
+        after["nftables"][2]["chain"]["handle"] = 17
+        after["nftables"][3]["rule"]["handle"] = 28
+        after["nftables"][4]["rule"]["handle"] = 29
         self.assertEqual(self.snapshot(before), self.snapshot(after))
 
     def test_non_counter_packet_or_byte_fields_remain_semantic(self) -> None:
@@ -108,12 +142,15 @@ class NftSemanticSnapshotTests(unittest.TestCase):
     def test_every_project_ruleset_semantic_remains_significant(self) -> None:
         baseline = ruleset_fixture()
         changes = {
-            "table": lambda value: value["nftables"][1]["table"].update(name="other"),
+            "table_family": lambda value: value["nftables"][1]["table"].update(family="ip"),
+            "table_name": lambda value: value["nftables"][1]["table"].update(name="other"),
+            "chain_name": lambda value: value["nftables"][2]["chain"].update(name="input"),
+            "chain_type": lambda value: value["nftables"][2]["chain"].update(type="nat"),
             "chain_hook": lambda value: value["nftables"][2]["chain"].update(hook="input"),
             "chain_priority": lambda value: value["nftables"][2]["chain"].update(prio=10),
             "chain_policy": lambda value: value["nftables"][2]["chain"].update(policy="accept"),
             "interface_match": lambda value: value["nftables"][3]["rule"]["expr"][0]["match"].update(right="eth9"),
-            "source_match": lambda value: value["nftables"][4]["rule"]["expr"][0]["match"].update(right="203.0.113.0/24"),
+            "rule_address_match": lambda value: value["nftables"][4]["rule"]["expr"][0]["match"].update(right="203.0.113.0/24"),
             "verdict": lambda value: value["nftables"][3]["rule"]["expr"].__setitem__(3, {"accept": None}),
             "nat": lambda value: value["nftables"][4]["rule"]["expr"][2]["snat"].update(addr="192.0.2.3"),
             "mss": lambda value: value["nftables"][4]["rule"]["expr"][1]["mangle"].update(value=1280),
