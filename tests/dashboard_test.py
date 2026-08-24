@@ -236,6 +236,120 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(parse_default_route(b'[{"dst":"default","dev":"warp0","gateway":"192.0.2.1"}]', expected_device="warp0", allow_gateway=False))
         self.assertFalse(parse_default_route(b'[{"dst":"default","dev":"warp0"},{"dst":"default","dev":"warp0"}]', expected_device="warp0", allow_gateway=False))
 
+    def test_interface_parser_uses_valid_administrative_up_flags(self) -> None:
+        from web.dashboard.collector import ObservationFailed, _parse_interface
+
+        cases = (
+            (b'[{"ifname":"warp0","operstate":"UP"}]', "up"),
+            (b'[{"ifname":"warp0","operstate":"UNKNOWN","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"]}]', "up"),
+            (b'[{"ifname":"warp0","operstate":"DOWN","flags":["POINTOPOINT","NOARP"]}]', "down"),
+            (b'[{"ifname":"warp0","operstate":"UNKNOWN","flags":["POINTOPOINT","NOARP"]}]', "unknown"),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(_parse_interface(raw), expected)
+
+        for raw in (
+            b'[{"ifname":"warp0","operstate":"UP","flags":"UP"}]',
+            b'[{"ifname":"warp0","operstate":"UP","flags":["UP",1]}]',
+            b'[{"ifname":"warp0","operstate":"UP","flags":{"UP":true}}]',
+        ):
+            with self.subTest(malformed=raw), self.assertRaises(ObservationFailed):
+                _parse_interface(raw)
+
+    def test_live_wireguard_link_shape_produces_connected_status(self) -> None:
+        from web.dashboard.collector import CollectorRuntime, collect_status
+
+        outputs = collector_outputs()
+        outputs[("/usr/sbin/ip", "-j", "-4", "link", "show", "dev", "warp0")] = (
+            b'[{"ifname":"warp0","operstate":"UNKNOWN","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"]}]\n'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            version = temporary_path / "VERSION"
+            uptime = temporary_path / "uptime"
+            version.write_text("0.4.1\n", encoding="ascii")
+            uptime.write_text("390600.00 100.00\n", encoding="ascii")
+            status = collect_status(
+                CollectorRuntime(
+                    runner=FakeRunner(outputs),
+                    version_path=version,
+                    uptime_path=uptime,
+                    now=lambda: datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+                    epoch_now=lambda: 1787572800,
+                )
+            )
+
+        self.assertEqual(status["warp"]["interface"], "up")
+        self.assertEqual(status["warp"]["state"], "connected")
+
+    @unittest.skipUnless(Path("/proc/uptime").exists(), "procfs uptime semantics require Linux")
+    def test_proc_uptime_is_read_when_metadata_size_is_zero(self) -> None:
+        from web.dashboard.collector import CollectorRuntime, collect_status
+
+        self.assertEqual(Path("/proc/uptime").stat().st_size, 0)
+        with tempfile.TemporaryDirectory() as temporary:
+            version = Path(temporary) / "VERSION"
+            version.write_text("0.4.1\n", encoding="ascii")
+            status = collect_status(
+                CollectorRuntime(
+                    runner=FakeRunner(collector_outputs()),
+                    version_path=version,
+                    now=lambda: datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+                    epoch_now=lambda: 1787572800,
+                )
+            )
+
+        self.assertIs(type(status["system"]["uptime_seconds"]), int)
+        self.assertGreaterEqual(status["system"]["uptime_seconds"], 0)
+
+    def test_virtual_uptime_reader_does_not_weaken_fixed_version_reader(self) -> None:
+        from web.dashboard.collector import CollectorRuntime, collect_status
+
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            version = temporary_path / "VERSION"
+            uptime = temporary_path / "uptime"
+            version.touch()
+            uptime.write_text("390600.00 100.00\n", encoding="ascii")
+            status = collect_status(
+                CollectorRuntime(
+                    runner=FakeRunner(collector_outputs()),
+                    version_path=version,
+                    uptime_path=uptime,
+                    now=lambda: datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+                    epoch_now=lambda: 1787572800,
+                )
+            )
+
+        self.assertEqual(status["system"]["version"], "unknown")
+        self.assertEqual(status["system"]["uptime_seconds"], 390600)
+
+    def test_transient_trace_failure_stays_unknown_and_never_becomes_ok(self) -> None:
+        from web.dashboard.collector import CollectorRuntime, ObservationFailed, collect_status
+
+        outputs = collector_outputs()
+        outputs[("/usr/bin/curl", "-4", "--silent", "--show-error", "--fail", "--interface", "ens160", "--connect-timeout", "5", "--max-time", "10", "https://www.cloudflare.com/cdn-cgi/trace")] = ObservationFailed("transient probe failure")
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            version = temporary_path / "VERSION"
+            uptime = temporary_path / "uptime"
+            version.write_text("0.4.1\n", encoding="ascii")
+            uptime.write_text("390600.00 100.00\n", encoding="ascii")
+            status = collect_status(
+                CollectorRuntime(
+                    runner=FakeRunner(outputs),
+                    version_path=version,
+                    uptime_path=uptime,
+                    now=lambda: datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+                    epoch_now=lambda: 1787572800,
+                )
+            )
+
+        self.assertEqual(status["paths"]["direct"], {"state": "unknown", "warp": "unknown"})
+        self.assertEqual(status["paths"]["warp"], {"state": "ok", "warp": "on"})
+        self.assertEqual(status["overall"]["state"], "degraded")
+
     def test_collector_builds_healthy_valid_status_using_only_read_only_commands(self) -> None:
         from web.dashboard.collector import CollectorRuntime, collect_status
 

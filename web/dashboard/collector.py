@@ -189,6 +189,27 @@ def _safe_read(path: Path, *, maximum: int = MAX_FILE_BYTES) -> bytes:
     return payload
 
 
+def _safe_read_virtual(path: Path, *, maximum: int = MAX_FILE_BYTES) -> bytes:
+    try:
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > maximum:
+            raise ObservationFailed("virtual file is unsafe")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_size > maximum:
+                raise ObservationFailed("virtual file changed while opening")
+            payload = os.read(descriptor, maximum + 1)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise ObservationFailed("virtual file unavailable") from exc
+    if not payload or len(payload) > maximum:
+        raise ObservationFailed("virtual file exceeded bound")
+    return payload
+
+
 def parse_trace(raw: bytes) -> dict[str, str]:
     try:
         text = raw.decode("ascii", errors="strict")
@@ -260,7 +281,13 @@ def _parse_interface(raw: bytes) -> str:
     links = _strict_json(raw)
     if type(links) is not list or len(links) != 1 or type(links[0]) is not dict:
         raise ObservationFailed("interface output is malformed")
-    state = links[0].get("operstate")
+    link = links[0]
+    flags = link.get("flags", [])
+    if type(flags) is not list or any(type(flag) is not str for flag in flags):
+        raise ObservationFailed("interface flags are malformed")
+    if "UP" in flags:
+        return "up"
+    state = link.get("operstate")
     if state == "UP":
         return "up"
     if state in {"DOWN", "LOWERLAYERDOWN", "NOTPRESENT", "DORMANT"}:
@@ -363,6 +390,13 @@ def _fixed_text(path: Path) -> str | None:
         return None
 
 
+def _virtual_text(path: Path) -> str | None:
+    try:
+        return _safe_read_virtual(path).decode("ascii", errors="strict").strip()
+    except (ObservationFailed, UnicodeDecodeError):
+        return None
+
+
 def _trace_command(interface: str) -> tuple[str, ...]:
     return (
         "/usr/bin/curl", "-4", "--silent", "--show-error", "--fail",
@@ -378,7 +412,7 @@ def collect_status(runtime: CollectorRuntime | None = None) -> dict[str, object]
     version = _fixed_text(runtime.version_path)
     if version is None or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version):
         version = "unknown"
-    uptime_text = _fixed_text(runtime.uptime_path)
+    uptime_text = _virtual_text(runtime.uptime_path)
     try:
         uptime_seconds: int | None = int(float(uptime_text.split()[0])) if uptime_text else None
     except (ValueError, IndexError):

@@ -70,6 +70,20 @@ recovery, service lifecycle, route/nft/WireGuard mutation, sudo, or a privileged
 helper. Browser polling never runs the collector. A future collector timer may
 use a 10–15 second cadence.
 
+WireGuard and other tunnel links may be administratively up while Linux reports
+`operstate=UNKNOWN`. The collector accepts a structurally valid `UP` link flag
+as administrative-up evidence; WARP path, routing, safety, and monitoring
+observations still independently determine dataplane health. `/proc/uptime` is
+read through a separate fixed-path, bounded, no-follow virtual-file reader
+because procfs reports a metadata size of zero even when content is available.
+Normal installation files such as `VERSION` retain the stricter positive-size
+regular-file checks.
+
+A failed external Cloudflare trace remains `unknown`; it is never rewritten as
+healthy. A deployment qualification should sample critical external-path
+telemetry across multiple collector executions before classifying an isolated
+UNKNOWN as a persistent path failure.
+
 ## Status schema
 
 The checked-in contract is `web/dashboard/status-schema.json` with
