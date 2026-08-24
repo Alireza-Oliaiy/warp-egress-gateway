@@ -16,7 +16,20 @@ PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
 }
 
 TEST_DIR=$(mktemp -d)
-trap 'rm -rf "${TEST_DIR}"' EXIT
+holder_pid=
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [[ -n ${holder_pid} ]]; then
+    if kill -0 "${holder_pid}" 2>/dev/null; then
+      kill "${holder_pid}" 2>/dev/null || true
+    fi
+    wait "${holder_pid}" 2>/dev/null || true
+  fi
+  rm -rf "${TEST_DIR}"
+  exit "${rc}"
+}
+trap cleanup EXIT
 chmod 700 "${TEST_DIR}"
 
 grep -q '^RUNTIME_STATE_FIXED_DIR=/run/warp-egress-gateway$' "${RUNTIME_LIB}"
@@ -107,35 +120,61 @@ with_mutation_lock attempt_nested_lock
 [[ ! -e ${nested_marker} ]]
 
 ready="${TEST_DIR}/ready"
+holder_lifetime_seconds=$((MUTATION_LOCK_TIMEOUT_SECONDS + 20))
 (
   exec 8<>"${MUTATION_LOCK_PATH}"
   /usr/bin/flock -x 8
   : >"${ready}"
-  sleep 7
+  exec /usr/bin/sleep "${holder_lifetime_seconds}"
 ) &
 holder_pid=$!
 for _ in {1..50}; do
   [[ -e ${ready} ]] && break
   sleep 0.05
 done
-[[ -e ${ready} ]]
+if [[ ! -e ${ready} ]]; then
+  printf 'Mutation lock holder did not become ready: holder_pid=%s holder_alive=%s\n' \
+    "${holder_pid}" "$(kill -0 "${holder_pid}" 2>/dev/null && printf yes || printf no)" >&2
+  exit 1
+fi
 
 rm -f "${mutation_marker}"
-start=$(date +%s)
+monotonic_ns() {
+  "${PYTHON3_BIN}" -I -c 'import time; print(time.monotonic_ns())'
+}
+start_ns=$(monotonic_ns)
 if with_mutation_lock locked_mutation; then
-  echo "Contended mutation lock unexpectedly succeeded." >&2
-  kill "${holder_pid}" 2>/dev/null || true
-  wait "${holder_pid}" 2>/dev/null || true
-  exit 1
+  rc=0
 else
   rc=$?
 fi
-elapsed=$(( $(date +%s) - start ))
-[[ ${rc} -eq 75 ]]
-[[ ${elapsed} -ge 4 && ${elapsed} -le 7 ]]
-[[ ! -e ${mutation_marker} ]]
+end_ns=$(monotonic_ns)
+elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
+minimum_elapsed_ms=$(( (MUTATION_LOCK_TIMEOUT_SECONDS - 1) * 1000 ))
+if kill -0 "${holder_pid}" 2>/dev/null; then
+  holder_alive=yes
+else
+  holder_alive=no
+fi
+if [[ -e ${mutation_marker} ]]; then
+  marker_present=yes
+else
+  marker_present=no
+fi
+
+if [[ ${rc} -ne 75 || ${MUTATION_RESULT} != mutation_busy || \
+      ${elapsed_ms} -lt ${minimum_elapsed_ms} || ${holder_alive} != yes || \
+      ${marker_present} != no ]]; then
+  printf '%s\n' \
+    "Mutation lock timeout assertion failed: rc=${rc} expected_rc=75 mutation_result=${MUTATION_RESULT} elapsed_ms=${elapsed_ms} configured_timeout_seconds=${MUTATION_LOCK_TIMEOUT_SECONDS} holder_alive=${holder_alive} marker_present=${marker_present}" >&2
+  exit 1
+fi
+printf '%s\n' \
+  "Mutation lock timeout check passed: rc=${rc} mutation_result=${MUTATION_RESULT} elapsed_ms=${elapsed_ms} configured_timeout_seconds=${MUTATION_LOCK_TIMEOUT_SECONDS} holder_alive=${holder_alive} marker_present=${marker_present}"
+
 kill "${holder_pid}" 2>/dev/null || true
 wait "${holder_pid}" 2>/dev/null || true
+holder_pid=
 
 rm -f "${INTENTIONAL_DISCONNECT_PATH}"
 [[ $(intentional_disconnect_state) == absent ]]
