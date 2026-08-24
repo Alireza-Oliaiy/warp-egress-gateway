@@ -47,7 +47,16 @@ required=(
   tests/intent_writer_test.py
   tests/nft_semantic_snapshot_test.py
   tests/web-mutations.sh
+  tests/dashboard.sh
+  tests/dashboard_test.py
   web/helper/warp-web-helper.py
+  web/dashboard/collector.py
+  web/dashboard/schema.py
+  web/dashboard/server.py
+  web/dashboard/status-schema.json
+  web/dashboard/static/index.html
+  web/dashboard/static/styles.css
+  web/dashboard/static/app.js
   tests/run-all.sh
   tests/whitespace.sh
   docs/monitoring.md
@@ -79,7 +88,11 @@ for relative in (
     "native/scripts/runtime-state-intent.py",
     "native/scripts/nft-semantic-snapshot.py",
     "web/helper/warp-web-helper.py",
+    "web/dashboard/collector.py",
+    "web/dashboard/schema.py",
+    "web/dashboard/server.py",
     "tests/helper_test.py",
+    "tests/dashboard_test.py",
     "tests/intent_writer_test.py",
     "tests/nft_semantic_snapshot_test.py",
 ):

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-24T12:00:00Z",
+  "overall": {"state": "degraded"},
+  "system": {"hostname": "gateway-demo-degraded", "version": "0.4.1", "uptime_seconds": 88200},
+  "warp": {"state": "connected", "interface": "up", "handshake_age_seconds": 212, "public_ip": "203.0.113.43", "colo": "AMS", "location": "NL"},
+  "paths": {"direct": {"state": "ok", "warp": "off"}, "warp": {"state": "ok", "warp": "on"}},
+  "routing": {"rule_100": "ok", "rule_110": "ok", "table_100": "ok", "main_default": "ok"},
+  "safety": {"kill_switch": "active", "ipv4_forwarding": true},
+  "monitoring": {"health": "warn", "monitor": "warn", "health_timer": "active", "monitor_timer": "active", "failed_units": 0}
+}

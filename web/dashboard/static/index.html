@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>WARP Egress Gateway</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body data-ui-state="loading">
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand-lockup">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <div>
+        <p class="eyebrow">Network Operations</p>
+        <h1>WARP Egress Gateway</h1>
+      </div>
+    </div>
+    <div class="overall-lockup">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="overall-state" class="badge badge-neutral">LOADING</span>
+    </div>
+  </header>
+
+  <div id="ui-message" class="system-banner" role="status" aria-live="polite">
+    Loading the latest gateway snapshot…
+  </div>
+
+  <main class="dashboard-shell">
+    <section class="hero-panel" aria-labelledby="gateway-heading">
+      <div>
+        <p class="section-kicker">Gateway</p>
+        <h2 id="gateway-heading"><span id="hostname">—</span></h2>
+        <p class="hero-copy">Read-only visibility into the WARP dataplane, policy routing, and safety boundary.</p>
+      </div>
+      <dl class="hero-facts">
+        <div>
+          <dt>Version</dt>
+          <dd id="version">—</dd>
+        </div>
+        <div>
+          <dt>System uptime</dt>
+          <dd id="uptime">—</dd>
+        </div>
+        <div>
+          <dt>Last updated</dt>
+          <dd id="last-updated">—</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="panel warp-panel" aria-labelledby="warp-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="section-kicker">Encrypted egress</p>
+          <h2 id="warp-heading">WARP Tunnel</h2>
+        </div>
+        <span id="warp-tunnel" class="badge badge-neutral">UNKNOWN</span>
+      </div>
+      <div class="metric-grid metric-grid-wide">
+        <article class="metric">
+          <span class="metric-icon interface-icon" aria-hidden="true"></span>
+          <div><p>warp0 interface</p><strong id="warp-interface">UNKNOWN</strong></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon pulse-icon" aria-hidden="true"></span>
+          <div><p>Latest handshake</p><strong id="handshake">UNKNOWN</strong></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon globe-icon" aria-hidden="true"></span>
+          <div><p>Public IP</p><strong id="public-ip">UNKNOWN</strong></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon pop-icon" aria-hidden="true"></span>
+          <div><p>Cloudflare POP</p><strong id="colo">UNKNOWN</strong></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon pin-icon" aria-hidden="true"></span>
+          <div><p>Location</p><strong id="location">UNKNOWN</strong></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-block" aria-labelledby="paths-heading">
+      <div class="section-heading">
+        <div><p class="section-kicker">Connectivity</p><h2 id="paths-heading">Network Paths</h2></div>
+        <span class="heading-rule" aria-hidden="true"></span>
+      </div>
+      <div class="two-column-grid">
+        <article class="panel path-card">
+          <div class="path-visual direct-visual" aria-hidden="true"><span></span></div>
+          <div><p class="card-label">Direct management path</p><h3>Uplink</h3></div>
+          <span id="direct-path" class="badge badge-neutral">UNKNOWN</span>
+        </article>
+        <article class="panel path-card">
+          <div class="path-visual warp-visual" aria-hidden="true"><span></span></div>
+          <div><p class="card-label">Protected egress path</p><h3>Cloudflare WARP</h3></div>
+          <span id="warp-path" class="badge badge-neutral">UNKNOWN</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-block" aria-labelledby="routing-heading">
+      <div class="section-heading">
+        <div><p class="section-kicker">Policy plane</p><h2 id="routing-heading">Routing</h2></div>
+        <span class="heading-rule" aria-hidden="true"></span>
+      </div>
+      <div class="four-column-grid">
+        <article class="panel compact-card"><div><p class="card-label">Source policy</p><h3>Rule 100</h3></div><span id="rule-100" class="badge badge-neutral">UNKNOWN</span></article>
+        <article class="panel compact-card"><div><p class="card-label">Transit ingress</p><h3>Rule 110</h3></div><span id="rule-110" class="badge badge-neutral">UNKNOWN</span></article>
+        <article class="panel compact-card"><div><p class="card-label">WARP default</p><h3>Table 100</h3></div><span id="table-100" class="badge badge-neutral">UNKNOWN</span></article>
+        <article class="panel compact-card"><div><p class="card-label">Management route</p><h3>Main default</h3></div><span id="main-default" class="badge badge-neutral">UNKNOWN</span></article>
+      </div>
+    </section>
+
+    <div class="two-column-grid lower-grid">
+      <section class="panel" aria-labelledby="safety-heading">
+        <div class="panel-heading"><div><p class="section-kicker">Fail closed</p><h2 id="safety-heading">Safety</h2></div><span class="shield" aria-hidden="true"></span></div>
+        <dl class="status-list">
+          <div><dt>Kill switch</dt><dd id="kill-switch" class="badge badge-neutral">UNKNOWN</dd></div>
+          <div><dt>IPv4 forwarding</dt><dd id="ipv4-forwarding" class="badge badge-neutral">UNKNOWN</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel" aria-labelledby="monitoring-heading">
+        <div class="panel-heading"><div><p class="section-kicker">Automated checks</p><h2 id="monitoring-heading">Monitoring</h2></div><span class="heartbeat" aria-hidden="true"></span></div>
+        <dl class="status-list monitoring-list">
+          <div><dt>Gateway health</dt><dd id="health" class="badge badge-neutral">UNKNOWN</dd></div>
+          <div><dt>Passive monitor</dt><dd id="monitor" class="badge badge-neutral">UNKNOWN</dd></div>
+          <div><dt>Health timer</dt><dd id="health-timer" class="badge badge-neutral">UNKNOWN</dd></div>
+          <div><dt>Monitor timer</dt><dd id="monitor-timer" class="badge badge-neutral">UNKNOWN</dd></div>
+          <div><dt>Failed units</dt><dd id="failed-units" class="badge badge-neutral">UNKNOWN</dd></div>
+        </dl>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <span>Snapshot-only monitoring</span>
+    <span aria-hidden="true">•</span>
+    <span>Refreshes every 5 seconds</span>
+  </footer>
+</body>
+</html>

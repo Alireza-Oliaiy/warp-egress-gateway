@@ -1,5 +1,10 @@
 # Web Console Security Boundary
 
+> **DEFERRED — FUTURE CONTROL-PLANE VERSION.** The sudo/helper boundary below is
+> parked future work and is not part of the v0.5.0 dashboard runtime path. The
+> current read-only snapshot boundary is defined in
+> [READ_ONLY_DASHBOARD.md](READ_ONLY_DASHBOARD.md).
+
 ## Purpose
 
 This document defines the only permitted privilege transition for the v0.5.0

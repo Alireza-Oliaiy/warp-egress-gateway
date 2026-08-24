@@ -1,5 +1,10 @@
 # Web Console Threat Model
 
+> **DEFERRED — FUTURE CONTROL-PLANE VERSION.** This threat model covers the
+> historical privileged administration design. It is retained, but it does not
+> describe the v0.5.0 monitoring-only dashboard. See
+> [READ_ONLY_DASHBOARD.md](READ_ONLY_DASHBOARD.md) for the current boundary.
+
 ## Scope
 
 This threat model covers the optional v0.5.0 Native Web Management Console,

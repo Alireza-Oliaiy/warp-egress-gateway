@@ -1,5 +1,10 @@
 # Web Console Phase 0 Decisions
 
+> **DEFERRED — FUTURE CONTROL-PLANE VERSION.** These Phase 0 administration
+> decisions are preserved for a future release. They do not define the v0.5.0
+> read-only runtime. The current product boundary is documented in
+> [READ_ONLY_DASHBOARD.md](READ_ONLY_DASHBOARD.md).
+
 ## Purpose
 
 This ledger separates requirements that implementation must not reinterpret

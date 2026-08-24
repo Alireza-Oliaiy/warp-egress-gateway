@@ -1,5 +1,10 @@
 # Web Console API Contract
 
+> **DEFERRED — FUTURE CONTROL-PLANE VERSION.** The authenticated `/api/v1/`
+> contract below is historical future work and is not exposed by v0.5.0. See
+> [READ_ONLY_DASHBOARD.md](READ_ONLY_DASHBOARD.md) for the GET-only snapshot API
+> implemented by the v0.5.0 dashboard.
+
 ## Contract status
 
 This is the Phase 0 contract for `/api/v1/`. It fixes security, roles,

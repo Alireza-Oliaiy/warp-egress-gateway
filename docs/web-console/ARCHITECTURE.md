@@ -1,5 +1,11 @@
 # Web Console Architecture
 
+> **DEFERRED — FUTURE CONTROL-PLANE VERSION.** This historical Phase 0 design
+> includes privileged administration capabilities and is not the v0.5.0 runtime
+> architecture. The authoritative v0.5.0 monitoring-only design is
+> [READ_ONLY_DASHBOARD.md](READ_ONLY_DASHBOARD.md). The material below is
+> retained for a separately reviewed future release.
+
 ## Status and scope
 
 This document freezes the Phase 0 architecture for the optional v0.5.0 Web
