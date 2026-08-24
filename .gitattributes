@@ -6,3 +6,4 @@ Makefile text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
 *.md text eol=lf
+web/sudoers/* text eol=lf

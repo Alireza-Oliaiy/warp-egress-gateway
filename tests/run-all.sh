@@ -24,6 +24,7 @@ tests=(
   policy-recovery.sh
   monitoring.sh
   helper.sh
+  sudoers.sh
   web-mutations.sh
   profile-ipv4.sh
   upgrade.sh

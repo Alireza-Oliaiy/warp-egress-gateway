@@ -37,6 +37,12 @@ mkdir -p "${STAGE}/${NAME}"
 # advertises them as part of the end-user product.
 rm -rf "${STAGE}/${NAME}/.github" "${STAGE}/${NAME}/docs/superpowers"
 
+# Git tracks only the executable bit, and source trees mounted from Windows or
+# extracted under an unusual umask can expose broader filesystem modes. Keep
+# the sudoers source template deterministic and non-executable in both release
+# archives; the later privileged installation applies root:root mode 0440.
+chmod 0644 "${STAGE}/${NAME}/web/sudoers/warp-egress-gateway-web"
+
 # Runtime state/generated content is intentionally excluded, but the tracked
 # placeholders must remain in release archives so a release payload can replace
 # an older Git checkout without deleting repository structure unexpectedly.

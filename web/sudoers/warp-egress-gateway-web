@@ -1,0 +1,8 @@
+# Privileged boundary for the unprivileged WARP web-console service.
+Defaults:warp-web env_reset
+Defaults:warp-web secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults:warp-web umask=0077
+Defaults:warp-web umask_override
+Defaults:warp-web log_allowed,log_denied
+
+warp-web ALL=(root:root) NOPASSWD:NOSETENV: /usr/local/libexec/warp-egress-gateway/warp-web-helper ""

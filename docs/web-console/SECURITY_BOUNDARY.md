@@ -37,7 +37,7 @@ Frozen ownership targets:
 | Path | Owner | Mode | Purpose |
 |---|---|---:|---|
 | `/usr/local/libexec/warp-egress-gateway/warp-web-helper` | `root:root` | `0755` | Sole sudo entry point |
-| `/etc/sudoers.d/warp-web` | `root:root` | `0440` | Exact helper authorization |
+| `/etc/sudoers.d/warp-egress-gateway-web` | `root:root` | `0440` | Exact helper authorization |
 | `/etc/warp-egress-gateway/warp-gateway.env` | `root:root` | `0600` | Existing trusted gateway configuration |
 | `/run/warp-egress-gateway` | `root:root` | `0700` | Root runtime intent state |
 | `/run/warp-egress-gateway/mutation.lock` | `root:root` | `0600` | Shared host mutation lock; stable for the boot |
@@ -53,16 +53,183 @@ commands, but it must never request or serialize `PrivateKey`.
 
 ## Single sudo entry point
 
+The privilege flow is intentionally one-way and has one executable entry
+point:
+
+```text
+warp-web
+    -> sudo -n
+    -> exact zero-argument warp-web-helper
+    -> strict helper protocol
+    -> fixed adapter allowlist
+```
+
 `warp-web` executes exactly this shape:
 
 ```text
-sudo -n -- /usr/local/libexec/warp-egress-gateway/warp-web-helper
+sudo -n -u root -g root -- /usr/local/libexec/warp-egress-gateway/warp-web-helper
 ```
 
 There are zero command-line arguments after the helper path. The sudoers rule
 must express an empty argument list and apply `NOSETENV`. It must not contain a
 wildcard command path, shell, interpreter, project script, or executable
 directory. `secure_path`, a fixed `umask`, and sudo logging remain enabled.
+
+The production policy is exactly:
+
+```sudoers
+Defaults:warp-web env_reset
+Defaults:warp-web secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults:warp-web umask=0077
+Defaults:warp-web umask_override
+Defaults:warp-web log_allowed,log_denied
+
+warp-web ALL=(root:root) NOPASSWD:NOSETENV: /usr/local/libexec/warp-egress-gateway/warp-web-helper ""
+```
+
+The final `""` is a sudoers empty-argument specification. Without it, a
+command entry that names only the helper path would permit the caller to append
+arbitrary arguments. `(root:root)` pins both the RunAs user and group;
+`NOPASSWD` permits the required non-interactive call, while `NOSETENV` prevents
+the caller from using `sudo -E` or unrestricted command-line environment
+assignments. No `env_keep` or `SETENV` exception is permitted for this command.
+
+This grant does not include `sudo -i`, `sudo -s`, `sudoedit`, a shell, a Python
+interpreter, `systemctl`, `journalctl`, `ip`, `nft`, `wg`, an executable
+directory, or any adapter. In particular,
+`web-warp-disconnect.sh`, `web-routing-repair.sh`, `web-health-run.sh`,
+`routing.sh`, `route-up.sh`, and `route-down.sh` remain unreachable through
+sudo. Mutation requests can reach them only after the fixed helper accepts the
+structured protocol request and selects a hard-coded adapter.
+
+### Installed path-chain requirements
+
+The repository and release archives carry
+`web/sudoers/warp-egress-gateway-web` as ordinary non-executable source
+content. Git does not encode the installed `0440` mode. Installation must set
+the final sudoers file to `root:root` mode `0440`; host qualification must check
+the installed metadata rather than infer it from archive metadata.
+
+Before the rule is enabled, every component of this path must be non-symlink
+and not writable by `warp-web`:
+
+```text
+/usr
+/usr/local
+/usr/local/libexec
+/usr/local/libexec/warp-egress-gateway
+/usr/local/libexec/warp-egress-gateway/warp-web-helper
+```
+
+The helper itself must be a root-owned regular file, not a symlink, with mode
+`0755`. The directories must be root-controlled and must not grant write
+access to `warp-web` through owner, group, ACL, or a supplementary group.
+Pathname matching is not an adequate boundary if the service account can
+replace any component.
+
+### Controlled installation and rollback
+
+The future host procedure must be performed from an independently retained
+root session and must fail closed:
+
+1. Confirm that `warp-web` is the dedicated no-login service identity and is
+   not a member of an administrative group.
+2. Inspect the complete helper path with `namei`, `lstat`/`stat`, ACL, and
+   `sudo -u warp-web test -w` checks. Refuse a symlink, non-regular helper,
+   non-root ownership, helper mode other than `0755`, or any component writable
+   by `warp-web`.
+3. Create a hidden unpredictable temporary file inside `/etc/sudoers.d` so the
+   later rename stays on the same filesystem. Copy the reviewed repository
+   template into it with explicit `root:root` ownership and mode `0440`.
+4. If a final policy already exists, first copy it into a new root-only rollback
+   directory outside the sudoers include tree. Refuse to overwrite an unsafe or
+   unvalidated existing object.
+5. Run `visudo -cf` against the temporary file. Stop without changing the
+   effective policy if validation fails.
+6. Atomically rename the validated temporary file to
+   `/etc/sudoers.d/warp-egress-gateway-web`; do not copy directly over the live
+   file.
+7. Immediately run `visudo -cf /etc/sudoers` and verify the final file is a
+   non-symlink regular file owned by `root:root` with mode `0440`.
+8. As `warp-web`, use `sudo -n -u root -g root --` to send valid `version` and
+   `routing-status` JSON requests on standard input to the zero-argument helper.
+   No test may permit a password prompt.
+9. Run the complete negative matrix with `sudo -n`: alternate users/groups,
+   appended helper arguments, alternate and symlink paths, shells,
+   interpreters, host tools, adapters, routing scripts, `sudoedit`, `sudo -i`,
+   and `sudo -s` must all be denied. Confirm accepted and denied attempts appear
+   in the configured sudo audit log.
+10. If any post-install assertion fails, atomically restore the saved policy;
+    if no previous policy existed, remove only the newly installed exact path.
+    Re-run `visudo -cf /etc/sudoers` after rollback and retain the evidence.
+
+The root operator should use the following transaction shape, substituting only
+the reviewed release payload path before execution. The service account never
+controls any path in this transaction:
+
+```bash
+POLICY_SOURCE=/absolute/path/to/reviewed-release/web/sudoers/warp-egress-gateway-web
+POLICY_FINAL=/etc/sudoers.d/warp-egress-gateway-web
+POLICY_STAGE=$(mktemp /etc/sudoers.d/.warp-egress-gateway-web.XXXXXX)
+ROLLBACK_DIR=$(mktemp -d /var/tmp/warp-egress-gateway-web-sudoers.XXXXXX)
+chmod 0700 "${ROLLBACK_DIR}"
+HAD_PREVIOUS=false
+
+if [[ -e ${POLICY_FINAL} ]]; then
+  [[ -f ${POLICY_FINAL} && ! -L ${POLICY_FINAL} ]]
+  install -o root -g root -m 0400 -- "${POLICY_FINAL}" "${ROLLBACK_DIR}/previous"
+  HAD_PREVIOUS=true
+fi
+
+install -o root -g root -m 0440 -- "${POLICY_SOURCE}" "${POLICY_STAGE}"
+visudo -cf "${POLICY_STAGE}"
+mv -T -- "${POLICY_STAGE}" "${POLICY_FINAL}"
+
+if ! visudo -cf /etc/sudoers; then
+  if [[ ${HAD_PREVIOUS} == true ]]; then
+    install -o root -g root -m 0440 -- \
+      "${ROLLBACK_DIR}/previous" "${POLICY_STAGE}.rollback"
+    visudo -cf "${POLICY_STAGE}.rollback"
+    mv -T -- "${POLICY_STAGE}.rollback" "${POLICY_FINAL}"
+  else
+    rm -f -- "${POLICY_FINAL}"
+  fi
+  visudo -cf /etc/sudoers
+  exit 1
+fi
+
+[[ $(stat -c '%U:%G:%a:%F' -- "${POLICY_FINAL}") == \
+  'root:root:440:regular file' ]]
+```
+
+The independently retained root session must then run the live policy checks
+as `warp-web`. These examples are representative gates; the host runbook must
+also execute every negative case listed above:
+
+```bash
+REQUEST='{"protocol":1,"verb":"version","parameters":{},"request_id":"0e2b7a20-e84c-4c1e-9eb8-a673be3d69d7","audit_context":{"asserted_actor":"host-qualification","asserted_role":"Viewer","asserted_source_ip":"127.0.0.1"}}'
+
+printf '%s\n' "${REQUEST}" |
+  runuser -u warp-web -- sudo -n -u root -g root -- \
+    /usr/local/libexec/warp-egress-gateway/warp-web-helper
+
+! runuser -u warp-web -- sudo -n -u root -g root -- \
+    /usr/local/libexec/warp-egress-gateway/warp-web-helper unexpected
+! runuser -u warp-web -- sudo -n -u root -g root -- /bin/sh -c true
+! runuser -u warp-web -- sudo -n -i
+! runuser -u warp-web -- sudo -n -s
+
+visudo -cf /etc/sudoers.d/warp-egress-gateway-web
+visudo -cf /etc/sudoers
+```
+
+Every call uses `sudo -n`; a denied command must return nonzero immediately and
+must never open a password or askpass path. The rollback directory is retained
+until all positive, negative, metadata, logging, and service checks pass.
+
+The historical broad qualification-account rule is not part of this product
+policy. It must remain untouched until a separate, explicitly authorized host
+cleanup after the narrow `warp-web` policy passes live qualification.
 
 The helper accepts one JSON object on standard input and then closes input. A
 conceptual request is:

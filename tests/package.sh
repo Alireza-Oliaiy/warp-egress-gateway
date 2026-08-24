@@ -29,8 +29,9 @@ for required in \
   native/scripts/nft-semantic-snapshot.py native/scripts/web-operation-lib.sh \
   native/scripts/web-routing-repair.sh native/scripts/web-health-run.sh \
   native/scripts/web-warp-disconnect.sh \
-  web/helper/warp-web-helper.py docs/upgrade.md docs/security.md \
-  tests/runtime-state.sh tests/helper.sh tests/helper_test.py \
+  web/helper/warp-web-helper.py web/sudoers/warp-egress-gateway-web \
+  docs/upgrade.md docs/security.md \
+  tests/runtime-state.sh tests/helper.sh tests/helper_test.py tests/sudoers.sh \
   tests/intent_writer_test.py tests/nft_semantic_snapshot_test.py \
   tests/web-mutations.sh tests/syntax.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
@@ -38,6 +39,19 @@ for required in \
     echo "Packaged TAR is missing required file: ${required}" >&2; exit 1;
   }
 done
+sudoers_entry="${NAME}/web/sudoers/warp-egress-gateway-web"
+[[ $(grep -Fxc "${sudoers_entry}" "${tar_list}") -eq 1 ]] || {
+  echo "Packaged TAR must contain exactly one sudoers template." >&2; exit 1;
+}
+cmp <(tar -xOf "${OUT}/${NAME}.tar.gz" "${sudoers_entry}") \
+  "${ROOT}/web/sudoers/warp-egress-gateway-web" || {
+  echo "Packaged TAR sudoers content differs from the repository template." >&2; exit 1;
+}
+sudoers_tar_mode=$(tar -tvzf "${OUT}/${NAME}.tar.gz" "${sudoers_entry}" | awk '{print $1}')
+[[ ${sudoers_tar_mode} == -rw-r--r-- ]] || {
+  echo "Packaged TAR sudoers template must be non-executable mode 0644, got ${sudoers_tar_mode}." >&2
+  exit 1
+}
 if grep -Eq "^${NAME}/(\\.git/|\\.github/|docs/superpowers/|release[^/]*/|CONTRIBUTING\\.md$|docker/\\.env$|wgcf-account\\.toml$|wgcf-profile\\.conf$)" "${tar_list}"; then
   echo "Packaged TAR contains forbidden development or runtime-private content." >&2
   exit 1
@@ -68,11 +82,13 @@ required = {
     f'{name}/native/scripts/web-health-run.sh',
     f'{name}/native/scripts/web-warp-disconnect.sh',
     f'{name}/web/helper/warp-web-helper.py',
+    f'{name}/web/sudoers/warp-egress-gateway-web',
     f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
     f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
     f'{name}/tests/syntax.sh',
     f'{name}/tests/runtime-state.sh', f'{name}/tests/helper.sh',
     f'{name}/tests/helper_test.py', f'{name}/tests/intent_writer_test.py',
+    f'{name}/tests/sudoers.sh',
     f'{name}/tests/nft_semantic_snapshot_test.py',
     f'{name}/tests/web-mutations.sh',
     f'{name}/docker/generated/.gitkeep',
@@ -92,6 +108,31 @@ if missing:
     raise SystemExit(f'Packaged ZIP is missing: {", ".join(sorted(missing))}')
 if forbidden:
     raise SystemExit('Packaged ZIP contains forbidden content: ' + ', '.join(sorted(forbidden)))
+PY
+
+"${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${NAME}" \
+  "${ROOT}/web/sudoers/warp-egress-gateway-web" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+archive_path = Path(sys.argv[1])
+name = sys.argv[2]
+source_path = Path(sys.argv[3])
+entry_name = f'{name}/web/sudoers/warp-egress-gateway-web'
+with zipfile.ZipFile(archive_path) as archive:
+    matches = [entry for entry in archive.infolist() if entry.filename == entry_name]
+    if len(matches) != 1:
+        raise SystemExit('Packaged ZIP must contain exactly one sudoers template.')
+    entry = matches[0]
+    payload = archive.read(entry)
+mode = (entry.external_attr >> 16) & 0o777
+if mode != 0o644 or mode & 0o111:
+    raise SystemExit(f'Packaged ZIP sudoers template must be non-executable mode 0644, got {mode:o}.')
+if payload != source_path.read_bytes():
+    raise SystemExit('Packaged ZIP sudoers content differs from the repository template.')
+if b'\r' in payload:
+    raise SystemExit('Packaged ZIP sudoers template contains CRLF line endings.')
 PY
 
 "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" <<'PY'
