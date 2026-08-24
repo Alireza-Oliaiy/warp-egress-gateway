@@ -1,11 +1,12 @@
 #!/usr/bin/python3 -I
-"""Loopback-only HTTP server for validated read-only dashboard snapshots."""
+"""Explicit-IPv4 HTTP server for validated read-only dashboard snapshots."""
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -189,11 +190,24 @@ def create_server(
     *,
     static_directory: Path = STATIC_DIR,
 ) -> DashboardHTTPServer:
-    if listen != LISTEN_ADDRESS:
-        raise ValueError("dashboard listener must be exactly 127.0.0.1")
+    if type(listen) is not str:
+        raise ValueError("dashboard listener must be a concrete IPv4 address")
+    try:
+        address = ipaddress.ip_address(listen)
+    except ValueError as exc:
+        raise ValueError("dashboard listener must be a concrete IPv4 address") from exc
+    if type(address) is not ipaddress.IPv4Address:
+        raise ValueError("dashboard listener must be a concrete IPv4 address")
+    if (
+        address.is_unspecified
+        or address.is_multicast
+        or address == ipaddress.IPv4Address("255.255.255.255")
+        or (address.is_loopback and address != ipaddress.IPv4Address(LISTEN_ADDRESS))
+    ):
+        raise ValueError("dashboard listener must be loopback or one explicit management IPv4")
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port is invalid")
-    return DashboardHTTPServer((LISTEN_ADDRESS, port), provider, static_directory)
+    return DashboardHTTPServer((str(address), port), provider, static_directory)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -208,7 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     provider: StatusProvider = FixtureProvider(arguments.fixture) if arguments.fixture else SnapshotProvider()
     server = create_server(arguments.listen, arguments.port, provider)
-    print(f"WARP dashboard listening on http://{LISTEN_ADDRESS}:{server.server_address[1]}", flush=True)
+    print(f"WARP dashboard listening on http://{server.server_address[0]}:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

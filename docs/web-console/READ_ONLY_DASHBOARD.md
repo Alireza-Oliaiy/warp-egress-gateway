@@ -26,7 +26,7 @@ web/dashboard/collector.py
         |
         | file read only; no command execution
         v
-web/dashboard/server.py  (127.0.0.1:8787)
+web/dashboard/server.py  (one explicit IPv4:8787)
         |
         v
 GET-only browser dashboard
@@ -98,10 +98,17 @@ dumps, arbitrary configuration, command stderr, SSH information, or sudoers.
 
 ## HTTP service
 
-The dependency-free server accepts exactly the literal listener
-`127.0.0.1` and defaults to port `8787`. It rejects wildcard, IPv6, hostname,
-and non-loopback addresses before creating a socket. v0.5.0 deliberately has no
-TLS or application authentication; it is not exposed to the LAN or Internet.
+The dependency-free server defaults to `127.0.0.1` on port `8787`. An operator
+may instead pass one concrete management IPv4 with `--listen`; the server binds
+exactly that address. It does not discover interfaces or add secondary
+listeners. Wildcard, IPv6, hostname, multicast, limited-broadcast, and invalid
+listeners are rejected before creating a socket.
+
+v0.5.0 deliberately has no TLS or application authentication. When the server
+is bound to a management IPv4, anyone with TCP access to that address and port
+can view the sanitized read-only dashboard. Restrict access with the host and
+management-network firewall or ACL; do not expose the listener to an untrusted
+network or the Internet.
 
 Supported routes are:
 
@@ -118,17 +125,19 @@ malformed, or unsafe data produces a sanitized `503 status_unavailable` result.
 
 ## Access
 
-From an administrative workstation, forward the gateway's loopback listener:
+For direct management-network access, bind the service to the gateway's one
+explicit management IPv4. For example, using the documentation-only address:
 
 ```bash
-ssh -L 8787:127.0.0.1:8787 <gateway>
+python3 -m web.dashboard.server --listen 192.0.2.10 --port 8787
 ```
 
-Then open:
+Then open `http://192.0.2.10:8787` from a workstation allowed by the management
+network policy. Replace the documentation address with the gateway's actual
+management IPv4. No real deployment address is stored in the repository.
 
-```text
-http://127.0.0.1:8787
-```
+Omitting `--listen` retains the safer loopback-only default. Direct management
+binding does not add authentication or encryption.
 
 ## Refresh and staleness
 

@@ -525,13 +525,63 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(js_status, 200)
         self.assertEqual(rejected, {"POST": 501, "PUT": 501, "PATCH": 501, "DELETE": 501})
 
-    def test_non_loopback_bind_is_rejected_before_socket_creation(self) -> None:
+    def test_explicit_management_ipv4_is_passed_unchanged_to_socket(self) -> None:
         from web.dashboard.server import FixtureProvider, create_server
 
         provider = FixtureProvider("healthy")
-        for listen in ("0.0.0.0", "::", "localhost", "192.0.2.10", "127.0.0.2", ""):
+        static_directory = Path("/synthetic/dashboard/assets")
+        sentinel = object()
+        with mock.patch("web.dashboard.server.DashboardHTTPServer", return_value=sentinel) as constructor:
+            try:
+                server = create_server("192.0.2.10", 8787, provider, static_directory=static_directory)
+            except ValueError as exc:
+                self.fail(f"explicit management IPv4 was rejected: {exc}")
+
+        self.assertIs(server, sentinel)
+        constructor.assert_called_once_with(("192.0.2.10", 8787), provider, static_directory)
+
+    def test_unsafe_listener_addresses_are_rejected_before_socket_creation(self) -> None:
+        from web.dashboard.server import FixtureProvider, create_server
+
+        provider = FixtureProvider("healthy")
+        for listen in (
+            "0.0.0.0",
+            "::",
+            "2001:db8::10",
+            "localhost",
+            "not-an-ip",
+            "224.0.0.1",
+            "255.255.255.255",
+            "127.0.0.2",
+            "",
+        ):
             with self.subTest(listen=listen), self.assertRaises(ValueError):
                 create_server(listen, 0, provider)
+
+    def test_non_string_listener_is_rejected_before_socket_creation(self) -> None:
+        from web.dashboard.server import FixtureProvider, create_server
+
+        with mock.patch("web.dashboard.server.DashboardHTTPServer") as constructor:
+            with self.assertRaises(ValueError):
+                create_server(1, 0, FixtureProvider("healthy"))  # type: ignore[arg-type]
+
+        constructor.assert_not_called()
+
+    def test_startup_log_reports_actual_bound_ipv4(self) -> None:
+        from web.dashboard.server import main
+
+        server = mock.Mock()
+        server.server_address = ("192.0.2.10", 8787)
+        server.serve_forever.side_effect = KeyboardInterrupt
+        with mock.patch("web.dashboard.server.create_server", return_value=server), mock.patch("builtins.print") as printer:
+            result = main(["--fixture", "healthy", "--listen", "192.0.2.10", "--port", "8787"])
+
+        self.assertEqual(result, 0)
+        printer.assert_called_once_with(
+            "WARP dashboard listening on http://192.0.2.10:8787",
+            flush=True,
+        )
+        server.server_close.assert_called_once_with()
 
     def test_missing_malformed_and_symlink_snapshots_fail_without_details(self) -> None:
         from web.dashboard.server import SnapshotProvider
