@@ -194,6 +194,14 @@ def collector_outputs() -> dict[tuple[str, ...], bytes | Exception]:
 
 
 class CollectorTests(unittest.TestCase):
+    def test_production_version_path_uses_native_install_contract(self) -> None:
+        from web.dashboard.collector import CollectorRuntime, VERSION_PATH
+
+        expected = Path("/etc/warp-egress-gateway/VERSION")
+        self.assertEqual(VERSION_PATH, expected)
+        self.assertEqual(CollectorRuntime().version_path, expected)
+        self.assertNotEqual(VERSION_PATH, Path("/opt/warp-egress-gateway/VERSION"))
+
     def test_bounded_runner_returns_stdout_without_a_shell(self) -> None:
         from web.dashboard.collector import BoundedRunner
 
@@ -248,6 +256,7 @@ class CollectorTests(unittest.TestCase):
             status = collect_status(runtime)
 
         self.assertEqual(validate_status(status)["overall"]["state"], "online")
+        self.assertEqual(status["system"]["version"], "0.4.1")
         self.assertEqual(status["warp"]["public_ip"], "203.0.113.77")
         self.assertEqual(status["routing"], {"rule_100": "ok", "rule_110": "ok", "table_100": "ok", "main_default": "ok"})
         tokens = {argument.lower() for call in runner.calls for argument in call}

@@ -24,7 +24,7 @@ from web.dashboard.schema import StatusValidationError, validate_status
 
 TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 STATUS_PATH = Path("/run/warp-egress-dashboard/status.json")
-VERSION_PATH = Path("/opt/warp-egress-gateway/VERSION")
+VERSION_PATH = Path("/etc/warp-egress-gateway/VERSION")
 UPTIME_PATH = Path("/proc/uptime")
 MAX_FILE_BYTES = 4096
 
