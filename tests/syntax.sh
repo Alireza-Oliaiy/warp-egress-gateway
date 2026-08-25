@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
 
 mapfile -t files < <(find "${ROOT}" -type f -name '*.sh' -not -path '*/release/*' | sort)
 for file in "${files[@]}"; do
@@ -29,6 +30,29 @@ required=(
   docker/bin/monitor.sh
   shared/journald/10-warp-egress-gateway-retention.conf
   shared/profile/normalize-warp-profile-ipv4.sh
+  web/__init__.py
+  web/dashboard/__init__.py
+  web/dashboard/collector.py
+  web/dashboard/schema.py
+  web/dashboard/server.py
+  web/dashboard/status-schema.json
+  web/dashboard/deploy/install.sh
+  web/dashboard/deploy/uninstall.sh
+  web/dashboard/deploy/__init__.py
+  web/dashboard/deploy/dashboard.env.example
+  web/dashboard/deploy/launcher.py
+  web/dashboard/deploy/systemd/warp-dashboard.service
+  web/dashboard/deploy/systemd/warp-dashboard-collector.service
+  web/dashboard/deploy/systemd/warp-dashboard-collector.timer
+  web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf
+  web/dashboard/static/index.html
+  web/dashboard/static/styles.css
+  web/dashboard/static/app.js
+  tests/dashboard.sh
+  tests/dashboard_test.py
+  tests/dashboard_ui_test.js
+  tests/dashboard-deploy.sh
+  tests/dashboard_deploy_test.py
   tests/profile-ipv4.sh
   tests/policy-recovery.sh
   tests/run-all.sh
@@ -51,6 +75,26 @@ for path in "${required[@]}"; do
   }
 done
 
+"${PYTHON3_BIN}" - "${ROOT}" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+for relative in (
+    "web/__init__.py",
+    "web/dashboard/__init__.py",
+    "web/dashboard/collector.py",
+    "web/dashboard/schema.py",
+    "web/dashboard/server.py",
+    "web/dashboard/deploy/__init__.py",
+    "web/dashboard/deploy/launcher.py",
+    "tests/dashboard_test.py",
+    "tests/dashboard_deploy_test.py",
+):
+    path = root / relative
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
+
 
 # Windows publishing and extracted-file resilience checks.
 grep -q 'exec bash .*native/setup.sh' "${ROOT}/setup.sh" || {
@@ -63,6 +107,10 @@ grep -q 'exec bash .*docker/setup.sh' "${ROOT}/setup.sh" || {
 }
 grep -q '\*.sh text eol=lf' "${ROOT}/.gitattributes" || {
   echo "Shell scripts must be pinned to LF line endings." >&2
+  exit 1
+}
+grep -q '\*.py text eol=lf' "${ROOT}/.gitattributes" || {
+  echo "Python scripts must be pinned to LF line endings." >&2
   exit 1
 }
 [[ -x ${ROOT}/tests/run-all.sh ]] || {

@@ -22,6 +22,8 @@ tests=(
   security-order.sh
   policy-recovery.sh
   monitoring.sh
+  dashboard.sh
+  dashboard-deploy.sh
   profile-ipv4.sh
   upgrade.sh
   docs.sh

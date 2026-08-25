@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-24T12:00:00Z",
+  "overall": {"state": "offline"},
+  "system": {"hostname": "gateway-demo-failed", "version": "0.4.1", "uptime_seconds": 5400},
+  "warp": {"state": "disconnected", "interface": "down", "handshake_age_seconds": null, "public_ip": null, "colo": null, "location": null},
+  "paths": {"direct": {"state": "ok", "warp": "off"}, "warp": {"state": "failed", "warp": "unknown"}},
+  "routing": {"rule_100": "failed", "rule_110": "failed", "table_100": "failed", "main_default": "ok"},
+  "safety": {"kill_switch": "active", "ipv4_forwarding": true},
+  "monitoring": {"health": "failed", "monitor": "failed", "health_timer": "active", "monitor_timer": "active", "failed_units": 1}
+}

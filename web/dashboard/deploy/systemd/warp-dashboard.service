@@ -1,0 +1,20 @@
+[Unit]
+Description=WARP read-only dashboard web service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=warp-web
+Group=warp-web
+WorkingDirectory=/opt/warp-egress-dashboard/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -I /opt/warp-egress-dashboard/app/web/dashboard/deploy/launcher.py
+NoNewPrivileges=true
+PrivateTmp=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

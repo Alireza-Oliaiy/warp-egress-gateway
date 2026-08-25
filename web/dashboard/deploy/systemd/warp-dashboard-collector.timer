@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the WARP read-only dashboard snapshot
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=15s
+Unit=warp-dashboard-collector.service
+
+[Install]
+WantedBy=timers.target
