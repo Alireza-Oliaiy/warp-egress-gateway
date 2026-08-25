@@ -27,6 +27,7 @@ tests=(
   sudoers.sh
   web-mutations.sh
   dashboard.sh
+  dashboard-deploy.sh
   profile-ipv4.sh
   upgrade.sh
   docs.sh

@@ -30,10 +30,17 @@ for required in \
   native/scripts/web-routing-repair.sh native/scripts/web-health-run.sh \
   native/scripts/web-warp-disconnect.sh \
   web/helper/warp-web-helper.py web/sudoers/warp-egress-gateway-web \
+  web/dashboard/deploy/install.sh web/dashboard/deploy/uninstall.sh \
+  web/dashboard/deploy/dashboard.env.example web/dashboard/deploy/launcher.py \
+  web/dashboard/deploy/systemd/warp-dashboard.service \
+  web/dashboard/deploy/systemd/warp-dashboard-collector.service \
+  web/dashboard/deploy/systemd/warp-dashboard-collector.timer \
+  web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf \
   docs/upgrade.md docs/security.md \
+  docs/web-console/READ_ONLY_DASHBOARD.md \
   tests/runtime-state.sh tests/helper.sh tests/helper_test.py tests/sudoers.sh \
   tests/intent_writer_test.py tests/nft_semantic_snapshot_test.py \
-  tests/web-mutations.sh tests/syntax.sh \
+  tests/web-mutations.sh tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
   grep -qx "${NAME}/${required}" "${tar_list}" || {
     echo "Packaged TAR is missing required file: ${required}" >&2; exit 1;
@@ -52,18 +59,31 @@ sudoers_tar_mode=$(tar -tvzf "${OUT}/${NAME}.tar.gz" "${sudoers_entry}" | awk '{
   echo "Packaged TAR sudoers template must be non-executable mode 0644, got ${sudoers_tar_mode}." >&2
   exit 1
 }
-if grep -Eq "^${NAME}/(\\.git/|\\.github/|docs/superpowers/|release[^/]*/|CONTRIBUTING\\.md$|docker/\\.env$|wgcf-account\\.toml$|wgcf-profile\\.conf$)" "${tar_list}"; then
+if grep -Eq "^${NAME}/(\\.git/|\\.github/|docs/superpowers/|release[^/]*/|CONTRIBUTING\\.md$|docker/\\.env$|wgcf-account\\.toml$|wgcf-profile\\.conf$)|(__pycache__/|\\.py[co]$)" "${tar_list}"; then
   echo "Packaged TAR contains forbidden development or runtime-private content." >&2
   exit 1
 fi
-for executable in setup.sh upgrade.sh rollback.sh tests/run-all.sh; do
+for executable in \
+  setup.sh upgrade.sh rollback.sh tests/run-all.sh \
+  web/dashboard/deploy/install.sh web/dashboard/deploy/uninstall.sh; do
   tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rwxr-xr-x .*${NAME}/${executable}$" >/dev/null || {
     echo "Packaged TAR executable mode is missing: ${executable}" >&2; exit 1;
   }
 done
+for regular in \
+  web/dashboard/deploy/dashboard.env.example \
+  web/dashboard/deploy/launcher.py \
+  web/dashboard/deploy/systemd/warp-dashboard.service \
+  web/dashboard/deploy/systemd/warp-dashboard-collector.service \
+  web/dashboard/deploy/systemd/warp-dashboard-collector.timer \
+  web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf; do
+  tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rw-r--r-- .*${NAME}/${regular}$" >/dev/null || {
+    echo "Packaged TAR regular-file mode is not 0644: ${regular}" >&2; exit 1;
+  }
+done
 
 "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${NAME}" <<'PY'
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import zipfile
 
@@ -83,14 +103,25 @@ required = {
     f'{name}/native/scripts/web-warp-disconnect.sh',
     f'{name}/web/helper/warp-web-helper.py',
     f'{name}/web/sudoers/warp-egress-gateway-web',
+    f'{name}/web/dashboard/deploy/install.sh',
+    f'{name}/web/dashboard/deploy/uninstall.sh',
+    f'{name}/web/dashboard/deploy/dashboard.env.example',
+    f'{name}/web/dashboard/deploy/launcher.py',
+    f'{name}/web/dashboard/deploy/systemd/warp-dashboard.service',
+    f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.service',
+    f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer',
+    f'{name}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf',
     f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
     f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
+    f'{name}/docs/web-console/READ_ONLY_DASHBOARD.md',
     f'{name}/tests/syntax.sh',
     f'{name}/tests/runtime-state.sh', f'{name}/tests/helper.sh',
     f'{name}/tests/helper_test.py', f'{name}/tests/intent_writer_test.py',
     f'{name}/tests/sudoers.sh',
     f'{name}/tests/nft_semantic_snapshot_test.py',
     f'{name}/tests/web-mutations.sh',
+    f'{name}/tests/dashboard-deploy.sh',
+    f'{name}/tests/dashboard_deploy_test.py',
     f'{name}/docker/generated/.gitkeep',
     f'{name}/docker/state/.gitkeep',
 }
@@ -103,7 +134,9 @@ with zipfile.ZipFile(archive_path) as archive:
         'wgcf-account.toml', 'wgcf-profile.conf',
     }
     forbidden = [entry for entry in entries if entry.removeprefix(f'{name}/') in forbidden_files
-                 or entry.removeprefix(f'{name}/').startswith(forbidden_roots)]
+                 or entry.removeprefix(f'{name}/').startswith(forbidden_roots)
+                 or '__pycache__' in PurePosixPath(entry).parts
+                 or PurePosixPath(entry).suffix in {'.pyc', '.pyo'}]
 if missing:
     raise SystemExit(f'Packaged ZIP is missing: {", ".join(sorted(missing))}')
 if forbidden:

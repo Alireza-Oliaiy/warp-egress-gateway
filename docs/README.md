@@ -16,6 +16,7 @@ This directory is the operational documentation for WARP Egress Gateway. Changes
 - [Migration](migration.md) — bringing a manual/legacy gateway under repository management.
 - [Operations](operations.md) — routine status, health, logs, maintenance, and incident commands.
 - [Monitoring](monitoring.md) — seven-day journald retention and passive path monitoring.
+- [Read-only dashboard](web-console/READ_ONLY_DASHBOARD.md) — production installation, access boundaries, and removal.
 - [Troubleshooting](troubleshooting.md) — common failures and evidence collection.
 
 ## Project governance

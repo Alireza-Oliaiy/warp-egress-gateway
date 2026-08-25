@@ -1,0 +1,12 @@
+[Unit]
+Description=WARP read-only dashboard collector
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/warp-egress-dashboard/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m web.dashboard.collector
+NoNewPrivileges=true
+PrivateTmp=true

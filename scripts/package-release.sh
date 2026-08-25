@@ -30,6 +30,10 @@ mkdir -p "${STAGE}/${NAME}"
   --exclude='./docker/state/*' \
   --exclude='./docker/generated/*' \
   --exclude='./docker/.env' \
+  --exclude='*/__pycache__' \
+  --exclude='*/__pycache__/*' \
+  --exclude='*.pyc' \
+  --exclude='*.pyo' \
   -cf - . ) | ( cd "${STAGE}/${NAME}" && tar -xf - )
 
 # tar preserves empty directory headers even when their contents are excluded.
@@ -42,6 +46,21 @@ rm -rf "${STAGE}/${NAME}/.github" "${STAGE}/${NAME}/docs/superpowers"
 # the sudoers source template deterministic and non-executable in both release
 # archives; the later privileged installation applies root:root mode 0440.
 chmod 0644 "${STAGE}/${NAME}/web/sudoers/warp-egress-gateway-web"
+
+# Dashboard deployment assets cross Unix and Windows worktrees before release.
+# Normalize their executable contract explicitly so extracted installers are
+# runnable while configuration, Python, systemd, and tmpfiles inputs remain
+# non-executable and independent of the packager's umask.
+chmod 0755 \
+  "${STAGE}/${NAME}/web/dashboard/deploy/install.sh" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/uninstall.sh"
+chmod 0644 \
+  "${STAGE}/${NAME}/web/dashboard/deploy/dashboard.env.example" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/launcher.py" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard.service" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard-collector.service" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer" \
+  "${STAGE}/${NAME}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf"
 
 # Runtime state/generated content is intentionally excluded, but the tracked
 # placeholders must remain in release archives so a release payload can replace

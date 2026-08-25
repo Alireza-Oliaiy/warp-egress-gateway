@@ -49,11 +49,21 @@ required=(
   tests/web-mutations.sh
   tests/dashboard.sh
   tests/dashboard_test.py
+  tests/dashboard-deploy.sh
+  tests/dashboard_deploy_test.py
   web/helper/warp-web-helper.py
   web/dashboard/collector.py
   web/dashboard/schema.py
   web/dashboard/server.py
   web/dashboard/status-schema.json
+  web/dashboard/deploy/install.sh
+  web/dashboard/deploy/uninstall.sh
+  web/dashboard/deploy/dashboard.env.example
+  web/dashboard/deploy/launcher.py
+  web/dashboard/deploy/systemd/warp-dashboard.service
+  web/dashboard/deploy/systemd/warp-dashboard-collector.service
+  web/dashboard/deploy/systemd/warp-dashboard-collector.timer
+  web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf
   web/dashboard/static/index.html
   web/dashboard/static/styles.css
   web/dashboard/static/app.js
@@ -91,8 +101,10 @@ for relative in (
     "web/dashboard/collector.py",
     "web/dashboard/schema.py",
     "web/dashboard/server.py",
+    "web/dashboard/deploy/launcher.py",
     "tests/helper_test.py",
     "tests/dashboard_test.py",
+    "tests/dashboard_deploy_test.py",
     "tests/intent_writer_test.py",
     "tests/nft_semantic_snapshot_test.py",
 ):
