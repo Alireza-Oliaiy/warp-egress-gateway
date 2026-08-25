@@ -215,6 +215,7 @@ def parse_trace(raw: bytes) -> dict[str, str]:
         text = raw.decode("ascii", errors="strict")
     except UnicodeDecodeError as exc:
         raise ObservationFailed("trace is not ASCII") from exc
+    value_limits = {"warp": 3, "ip": 45, "colo": 3, "loc": 32}
     result: dict[str, str] = {}
     for line in text.splitlines():
         if not line:
@@ -222,19 +223,30 @@ def parse_trace(raw: bytes) -> dict[str, str]:
         if "=" not in line:
             raise ObservationFailed("trace line is malformed")
         key, value = line.split("=", 1)
-        if not re.fullmatch(r"[a-z]{1,16}", key) or len(value) > 128 or any(ord(ch) < 32 for ch in value):
-            raise ObservationFailed("trace field is malformed")
+        if key not in value_limits:
+            continue
         if key in result:
             raise ObservationFailed("trace key is duplicated")
-        if key in {"warp", "ip", "colo", "loc"}:
-            result[key] = value
-    if result.get("warp") not in {"on", "off"}:
+        if (
+            not value
+            or len(value) > value_limits[key]
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in value)
+        ):
+            raise ObservationFailed("trace field is malformed")
+        if key == "warp" and value not in {"on", "off"}:
+            raise ObservationFailed("trace WARP state is invalid")
+        if key == "ip":
+            try:
+                ipaddress.ip_address(value)
+            except ValueError as exc:
+                raise ObservationFailed("trace IP is invalid") from exc
+        if key == "colo" and not re.fullmatch(r"[A-Z0-9]{3}", value):
+            raise ObservationFailed("trace colo is invalid")
+        if key == "loc" and not re.fullmatch(r"[A-Z0-9-]{2,32}", value):
+            raise ObservationFailed("trace location is invalid")
+        result[key] = value
+    if "warp" not in result:
         raise ObservationFailed("trace lacks WARP state")
-    if "ip" in result:
-        try:
-            ipaddress.ip_address(result["ip"])
-        except ValueError as exc:
-            raise ObservationFailed("trace IP is invalid") from exc
     return result
 
 

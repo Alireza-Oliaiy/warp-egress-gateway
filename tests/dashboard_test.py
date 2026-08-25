@@ -178,8 +178,8 @@ def collector_outputs() -> dict[tuple[str, ...], bytes | Exception]:
         ("/usr/sbin/ip", "-j", "-4", "link", "show", "dev", "warp0"): b'[{"ifname":"warp0","operstate":"UP"}]\n',
         ("/usr/sbin/ip", "-4", "-o", "address", "show", "dev", "warp0", "scope", "global"): b"7: warp0 inet 172.16.0.2/32 scope global warp0\n",
         ("/usr/bin/wg", "show", "warp0", "latest-handshakes"): b"peer-public-key\t1787572770\n",
-        ("/usr/bin/curl", "-4", "--silent", "--show-error", "--fail", "--interface", "ens160", "--connect-timeout", "5", "--max-time", "10", "https://www.cloudflare.com/cdn-cgi/trace"): b"ip=198.51.100.8\nloc=DE\ncolo=FRA\nwarp=off\n",
-        ("/usr/bin/curl", "-4", "--silent", "--show-error", "--fail", "--interface", "172.16.0.2", "--connect-timeout", "5", "--max-time", "10", "https://www.cloudflare.com/cdn-cgi/trace"): b"ip=203.0.113.77\nloc=DE\ncolo=FRA\nwarp=on\n",
+        ("/usr/bin/curl", "-4", "--silent", "--show-error", "--fail", "--interface", "ens160", "--connect-timeout", "5", "--max-time", "10", "https://www.cloudflare.com/cdn-cgi/trace"): b"ip=198.51.100.8\nvisit_scheme=https\nsome_future_field=value\nloc=DE\ncolo=FRA\nwarp=off\n",
+        ("/usr/bin/curl", "-4", "--silent", "--show-error", "--fail", "--interface", "172.16.0.2", "--connect-timeout", "5", "--max-time", "10", "https://www.cloudflare.com/cdn-cgi/trace"): b"ip=203.0.113.77\nvisit_scheme=https\nsome_future_field=value\nloc=DE\ncolo=FRA\nwarp=on\n",
         ("/usr/sbin/ip", "-4", "rule", "show"): b"0: from all lookup local\n100: from 172.16.0.2 lookup warp_gateway\n110: from all iif ens192 lookup warp_gateway\n32766: from all lookup main\n",
         ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", "100", "default"): b'[{"dst":"default","dev":"warp0","scope":"link"}]\n',
         ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", "main", "default"): b'[{"dst":"default","gateway":"192.0.2.1","dev":"ens160"}]\n',
@@ -235,6 +235,55 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(parse_default_route(b'[{"dst":"default","dev":"warp0","scope":"link"}]', expected_device="warp0", allow_gateway=False))
         self.assertFalse(parse_default_route(b'[{"dst":"default","dev":"warp0","gateway":"192.0.2.1"}]', expected_device="warp0", allow_gateway=False))
         self.assertFalse(parse_default_route(b'[{"dst":"default","dev":"warp0"},{"dst":"default","dev":"warp0"}]', expected_device="warp0", allow_gateway=False))
+
+    def test_trace_parser_ignores_unconsumed_cloudflare_fields(self) -> None:
+        from web.dashboard.collector import parse_trace
+
+        realistic = (
+            b"fl=example\n"
+            b"h=www.cloudflare.com\n"
+            b"ip=203.0.113.42\n"
+            b"ts=1234567890.123\n"
+            b"visit_scheme=https\n"
+            b"uag=curl/8.0.0\n"
+            b"colo=SOF\n"
+            b"http=http/2\n"
+            b"loc=TJ\n"
+            b"tls=TLSv1.3\n"
+            b"sni=plaintext\n"
+            b"warp=on\n"
+            b"gateway=off\n"
+            b"rbi=off\n"
+        )
+        self.assertEqual(
+            parse_trace(realistic),
+            {"ip": "203.0.113.42", "colo": "SOF", "loc": "TJ", "warp": "on"},
+        )
+        self.assertEqual(
+            parse_trace(
+                b"some_future_field=first\n"
+                b"some_future_field=second\n"
+                b"warp=off\n"
+            ),
+            {"warp": "off"},
+        )
+
+    def test_trace_parser_rejects_malformed_consumed_fields(self) -> None:
+        from web.dashboard.collector import ObservationFailed, parse_trace
+
+        malformed = (
+            b"warp=on\nwarp=off\n",
+            b"ip=203.0.113.42\nip=203.0.113.43\nwarp=on\n",
+            b"ip=not-an-ip\nwarp=on\n",
+            b"warp=maybe\n",
+            b"line-without-equals\nwarp=on\n",
+            b"colo=SOF\x01\nwarp=on\n",
+            b"colo=SOF\x7f\nwarp=on\n",
+            b"loc=" + (b"A" * 33) + b"\nwarp=on\n",
+        )
+        for raw in malformed:
+            with self.subTest(raw=raw), self.assertRaises(ObservationFailed):
+                parse_trace(raw)
 
     def test_interface_parser_uses_valid_administrative_up_flags(self) -> None:
         from web.dashboard.collector import ObservationFailed, _parse_interface
@@ -371,7 +420,11 @@ class CollectorTests(unittest.TestCase):
 
         self.assertEqual(validate_status(status)["overall"]["state"], "online")
         self.assertEqual(status["system"]["version"], "0.4.1")
+        self.assertEqual(status["paths"]["direct"], {"state": "ok", "warp": "off"})
+        self.assertEqual(status["paths"]["warp"], {"state": "ok", "warp": "on"})
         self.assertEqual(status["warp"]["public_ip"], "203.0.113.77")
+        self.assertEqual(status["warp"]["colo"], "FRA")
+        self.assertEqual(status["warp"]["location"], "DE")
         self.assertEqual(status["routing"], {"rule_100": "ok", "rule_110": "ok", "table_100": "ok", "main_default": "ok"})
         tokens = {argument.lower() for call in runner.calls for argument in call}
         joined = "\n".join(" ".join(call).lower() for call in runner.calls)
