@@ -7,6 +7,7 @@
   let requestFailed = false;
 
   const badgeClasses = ["badge-good", "badge-warn", "badge-bad", "badge-neutral"];
+  const bannerClasses = ["system-banner-warn", "system-banner-bad", "system-banner-neutral"];
   const stateTone = {
     online: "good",
     connected: "good",
@@ -18,8 +19,10 @@
     offline: "bad",
     disconnected: "bad",
     down: "bad",
+    error: "bad",
     failed: "bad",
     inactive: "bad",
+    stale: "warn",
     unknown: "neutral",
   };
 
@@ -66,13 +69,69 @@
     return `${display(path.state)} · WARP ${display(path.warp)}`;
   }
 
-  function setUiState(state) {
-    document.body.dataset.uiState = state;
+  function showBanner(messageText, tone = "neutral") {
     const message = node("ui-message");
     if (!message) return;
-    if (state === "loading") message.textContent = "Loading the latest gateway snapshot…";
-    if (state === "unavailable") message.textContent = "Status snapshot unavailable. Retrying automatically…";
-    if (state === "stale") message.textContent = "STALE — the latest snapshot is older than 30 seconds.";
+    message.hidden = false;
+    message.textContent = messageText;
+    message.classList.remove(...bannerClasses);
+    message.classList.add(`system-banner-${tone}`);
+  }
+
+  function renderSummary() {
+    const uiState = document.body.dataset.uiState;
+    const overall = document.body.dataset.overall || "unknown";
+    const message = node("ui-message");
+    if (!message) return;
+
+    if (uiState === "loading") {
+      showBanner("Loading the latest gateway snapshot…");
+      return;
+    }
+    if (uiState === "unavailable") {
+      showBanner("UNKNOWN · Current gateway status is unavailable", "neutral");
+      return;
+    }
+    if (uiState === "stale") {
+      showBanner("STALE · Telemetry is older than 30 seconds", "warn");
+      return;
+    }
+    if (overall === "online") {
+      message.hidden = true;
+      message.textContent = "";
+      message.classList.remove(...bannerClasses);
+      return;
+    }
+    if (overall === "degraded") {
+      showBanner("DEGRADED · One or more observations require attention", "warn");
+      return;
+    }
+    if (overall === "offline") {
+      showBanner("OFFLINE · Gateway status requires attention", "bad");
+      return;
+    }
+    showBanner("UNKNOWN · Current gateway status is unavailable", "neutral");
+  }
+
+  function setUiState(state) {
+    document.body.dataset.uiState = state;
+    renderSummary();
+  }
+
+  function formatUtcOffset(date) {
+    const totalMinutes = -date.getTimezoneOffset();
+    const sign = totalMinutes >= 0 ? "+" : "-";
+    const absoluteMinutes = Math.abs(totalMinutes);
+    const hours = Math.floor(absoluteMinutes / 60);
+    const minutes = absoluteMinutes % 60;
+    return `UTC${sign}${hours}${minutes === 0 ? "" : `:${String(minutes).padStart(2, "0")}`}`;
+  }
+
+  function formatLastUpdated(timestampMs) {
+    if (!Number.isFinite(timestampMs)) return "UNKNOWN";
+    const updatedAt = new Date(timestampMs);
+    const localTime = updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return `${localTime} · ${formatUtcOffset(updatedAt)}`;
   }
 
   function renderStatus(status) {
@@ -108,7 +167,8 @@
     badge("failed-units", failedUnits === null ? "UNKNOWN" : String(failedUnits), failedUnits === 0 ? "ok" : failedUnits === null ? "unknown" : "failed");
 
     generatedAtMs = Date.parse(status.generated_at);
-    text("last-updated", Number.isFinite(generatedAtMs) ? new Date(generatedAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "UNKNOWN");
+    text("last-updated", formatLastUpdated(generatedAtMs));
+    renderSummary();
   }
 
   function updateStaleState() {
@@ -130,6 +190,7 @@
       updateStaleState();
     } catch (_error) {
       requestFailed = true;
+      document.body.dataset.overall = "unknown";
       setUiState("unavailable");
       badge("overall-state", "UNKNOWN", "unknown");
     }

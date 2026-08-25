@@ -64,7 +64,7 @@
       <div class="metric-grid metric-grid-wide">
         <article class="metric">
           <span class="metric-icon interface-icon" aria-hidden="true"></span>
-          <div><p>warp0 interface</p><strong id="warp-interface">UNKNOWN</strong></div>
+          <div><p>warp0 interface</p><strong id="warp-interface" class="badge badge-neutral">UNKNOWN</strong></div>
         </article>
         <article class="metric">
           <span class="metric-icon pulse-icon" aria-hidden="true"></span>
@@ -93,7 +93,7 @@
       <div class="two-column-grid">
         <article class="panel path-card">
           <div class="path-visual direct-visual" aria-hidden="true"><span></span></div>
-          <div><p class="card-label">Direct management path</p><h3>Uplink</h3></div>
+          <div><p class="card-label">Direct uplink path</p><h3>Uplink</h3></div>
           <span id="direct-path" class="badge badge-neutral">UNKNOWN</span>
         </article>
         <article class="panel path-card">
@@ -140,9 +140,11 @@
   </main>
 
   <footer>
-    <span>Snapshot-only monitoring</span>
+    <span>Read-only monitoring</span>
     <span aria-hidden="true">•</span>
-    <span>Refreshes every 5 seconds</span>
+    <span>UI polls every 5s</span>
+    <span aria-hidden="true">•</span>
+    <span>Telemetry refreshes every ~15s</span>
   </footer>
 </body>
 </html>

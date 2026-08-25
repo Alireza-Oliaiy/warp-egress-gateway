@@ -720,6 +720,14 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("main", audit.tags)
         self.assertIn('aria-live="polite"', self.html)
 
+    def test_frontend_copy_describes_polling_uplink_and_read_only_scope_accurately(self) -> None:
+        self.assertIn("Read-only monitoring", self.html)
+        self.assertIn("UI polls every 5s", self.html)
+        self.assertIn("Telemetry refreshes every ~15s", self.html)
+        self.assertIn("Direct uplink path", self.html)
+        self.assertNotIn("Snapshot-only monitoring", self.html)
+        self.assertNotIn("Direct management path", self.html)
+
     def test_frontend_has_loading_unavailable_and_stale_behaviors(self) -> None:
         self.assertIn("const POLL_INTERVAL_MS = 5000", self.javascript)
         self.assertIn("const STALE_AFTER_MS = 30000", self.javascript)
