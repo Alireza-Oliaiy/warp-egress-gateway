@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 - 2026-08-25
+
+- Added an opt-in, GET-only monitoring dashboard and sanitized status API with
+  healthy, degraded, failed, unknown, unavailable, and stale presentation.
+- Added a fixed-command root collector that atomically publishes a bounded,
+  schema-validated snapshot for an unprivileged `warp-web` service.
+- Added exact loopback or management-IPv4 listener validation plus production
+  installer, systemd, tmpfiles, configuration, and safe uninstaller assets.
+- Kept v0.5.0 read-only: it ships no privileged helper, sudoers policy,
+  mutation endpoint, authentication, or TLS. Management-bound access must be
+  protected by external firewall or ACL policy.
+- Added dashboard, deployment, archive-content, and file-mode regression
+  coverage for both TAR and ZIP release payloads.
+
 ## 0.4.1 - 2026-08-15
 
 - Added exact runtime policy-routing validation for both configured rule
