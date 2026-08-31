@@ -37,7 +37,7 @@
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.4.1: recover policy routing after network reconciliation" `
+  -CommitMessage "Release v0.5.1: support annotated tags in remote upgrades" `
   -CreateReleaseTag
 ```
 
@@ -66,7 +66,7 @@ sudo bash setup.sh
 از نسخه `0.4.0` روی نصب Native دستور رسمی Upgrade نصب می‌شود؛ بدون `--ref` بالاترین Release Tag با قالب `vX.Y.Z` انتخاب می‌شود:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.1
+sudo warp-gateway upgrade --ref v0.5.1
 ```
 
 برای بررسی بدون اعمال تغییر:

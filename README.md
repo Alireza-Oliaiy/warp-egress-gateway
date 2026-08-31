@@ -72,7 +72,7 @@ Run in PowerShell from the extracted project directory:
 Set-ExecutionPolicy -Scope Process Bypass
 .\publish-to-github.ps1 `
   -RepositoryUrl "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git" `
-  -CommitMessage "Release v0.4.1: recover policy routing after network reconciliation" `
+  -CommitMessage "Release v0.5.1: support annotated tags in remote upgrades" `
   -CreateReleaseTag
 ```
 
@@ -99,7 +99,7 @@ Then it asks for the main IP and the transit IP/CIDR.
 From `0.4.0`, Native installations expose a managed upgrade command. With no `--ref`, it selects the highest tagged `vX.Y.Z` release:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.1
+sudo warp-gateway upgrade --ref v0.5.1
 ```
 
 Preview without changes:

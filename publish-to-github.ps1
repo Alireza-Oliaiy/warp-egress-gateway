@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryUrl = "https://github.com/Alireza-Oliaiy/warp-egress-gateway.git",
-    [string]$CommitMessage = "Release v0.5.0: add read-only WARP dashboard",
+    [string]$CommitMessage = "Release v0.5.1: support annotated tags in remote upgrades",
     [string]$Branch = "main",
     [switch]$CreateReleaseTag,
     [string]$WorkDirectory = (Join-Path $env:TEMP "warp-egress-gateway-publish")

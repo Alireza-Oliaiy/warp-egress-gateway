@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 - 2026-08-31
+
+- Fixed remote upgrades from annotated semantic release tags while retaining
+  the exact remote tag-object pin used to prevent ref drift.
+- Deterministically peel the pinned ref object to its commit, check out that
+  exact commit detached, and verify `HEAD` against the peeled commit.
+- Kept semantic tag/`VERSION` matching and all existing fail-closed validation.
+- No gateway dataplane, routing, nftables, WireGuard, dashboard, collector,
+  server, or UI behavior changed.
+
 ## 0.5.0 - 2026-08-25
 
 - Added an opt-in, GET-only monitoring dashboard and sanitized status API with
