@@ -54,16 +54,19 @@ workdir=$(mktemp -d /tmp/warp-egress-upgrade.XXXXXX)
 cleanup() { rm -rf "${workdir}"; }
 trap cleanup EXIT
 
-if [[ ${REF} == latest ]]; then
-  REF=$(git ls-remote --tags --refs "${REPOSITORY_URL}" 'refs/tags/v*' \
+die() { echo "[upgrade-bootstrap] ERROR: $*" >&2; exit 1; }
+
+select_latest_ref() {
+  local selected_ref
+  selected_ref=$(git ls-remote --tags --refs "${REPOSITORY_URL}" 'refs/tags/v*' \
     | awk '{sub("refs/tags/", "", $2); print $2}' \
     | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
     | sort -V \
     | tail -n1 || true)
-  [[ -n ${REF} ]] || { echo "No semantic-version release tags were found. Use --ref main only for an intentional unreleased upgrade." >&2; exit 1; }
-fi
-
-die() { echo "[upgrade-bootstrap] ERROR: $*" >&2; exit 1; }
+  [[ -n ${selected_ref} ]] \
+    || die "No semantic-version release tags were found. Use --ref main only for an intentional unreleased upgrade."
+  REF=${selected_ref}
+}
 
 resolve_requested_ref() {
   local ref=$1 remote_ref
@@ -73,11 +76,43 @@ resolve_requested_ref() {
     remote_ref="refs/heads/${ref}"
   fi
 
-  RESOLVED_OID=$(git ls-remote --exit-code "${REPOSITORY_URL}" "${remote_ref}" \
+  RESOLVED_REF_OID=$(git ls-remote --exit-code "${REPOSITORY_URL}" "${remote_ref}" \
     | awk -v wanted="${remote_ref}" '$2 == wanted { print $1; exit }')
-  [[ ${RESOLVED_OID} =~ ^[0-9a-fA-F]{40}$ ]] \
+  [[ ${RESOLVED_REF_OID} =~ ^[0-9a-fA-F]{40}$ ]] \
     || die "Requested ref ${ref} could not be resolved exactly."
   RESOLVED_REF=${remote_ref}
+}
+
+peel_resolved_commit() {
+  local repository=$1
+  [[ ${RESOLVED_REF_OID:-} =~ ^[0-9a-fA-F]{40}$ ]] \
+    || die "Resolved ref object OID is malformed."
+  RESOLVED_COMMIT_OID=$(git -C "${repository}" rev-parse --verify "${RESOLVED_REF_OID}^{commit}" 2>/dev/null) \
+    || die "Resolved ${RESOLVED_REF} object cannot be peeled to a commit."
+  [[ ${RESOLVED_COMMIT_OID} =~ ^[0-9a-fA-F]{40}$ ]] \
+    || die "Resolved commit OID is malformed."
+}
+
+verify_checked_out_commit() {
+  local repository=$1 checked_out_oid
+  [[ ${RESOLVED_COMMIT_OID:-} =~ ^[0-9a-fA-F]{40}$ ]] \
+    || die "Resolved commit OID is malformed."
+  checked_out_oid=$(git -C "${repository}" rev-parse --verify HEAD 2>/dev/null) \
+    || die "Downloaded source has no valid HEAD commit."
+  [[ ${checked_out_oid} == "${RESOLVED_COMMIT_OID}" ]] \
+    || die "Downloaded source does not match peeled commit for ${RESOLVED_REF}."
+}
+
+checkout_resolved_ref() {
+  local repository=$1
+  git clone --quiet --no-checkout --depth 1 "${REPOSITORY_URL}" "${repository}" \
+    || die "Could not create the pinned upgrade checkout."
+  git -C "${repository}" fetch --quiet --depth 1 origin "${RESOLVED_REF_OID}" \
+    || die "Could not fetch resolved object for ${RESOLVED_REF}."
+  peel_resolved_commit "${repository}"
+  git -C "${repository}" checkout --quiet --detach "${RESOLVED_COMMIT_OID}" \
+    || die "Could not check out peeled commit for ${RESOLVED_REF}."
+  verify_checked_out_commit "${repository}"
 }
 
 validate_checked_out_version() {
@@ -94,13 +129,11 @@ validate_checked_out_version() {
   fi
 }
 
+[[ ${REF} == latest ]] && select_latest_ref
 resolve_requested_ref "${REF}"
-echo "[upgrade-bootstrap] Fetching ${REPOSITORY_URL} ref ${REF} (${RESOLVED_OID})."
-git clone --quiet --no-checkout --depth 1 "${REPOSITORY_URL}" "${workdir}/repo"
-git -C "${workdir}/repo" fetch --quiet --depth 1 origin "${RESOLVED_OID}"
-git -C "${workdir}/repo" checkout --quiet --detach "${RESOLVED_OID}"
-[[ $(git -C "${workdir}/repo" rev-parse HEAD) == "${RESOLVED_OID}" ]] \
-  || die "Downloaded source does not match resolved ${RESOLVED_REF}."
+echo "[upgrade-bootstrap] Fetching ${REPOSITORY_URL} ref ${REF} object ${RESOLVED_REF_OID}."
+checkout_resolved_ref "${workdir}/repo"
+echo "[upgrade-bootstrap] Resolved ${RESOLVED_REF} object ${RESOLVED_REF_OID} to commit ${RESOLVED_COMMIT_OID}."
 validate_checked_out_version "${workdir}/repo/VERSION"
 
 args=(--mode "${MODE}")

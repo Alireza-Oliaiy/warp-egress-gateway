@@ -36,7 +36,7 @@ sudo warp-gateway upgrade
 You can also pin a specific reviewed release tag:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.1
+sudo warp-gateway upgrade --ref vX.Y.Z
 ```
 
 Preview without changing the host:
@@ -48,12 +48,51 @@ sudo warp-gateway upgrade --dry-run
 Non-interactive maintenance window:
 
 ```bash
-sudo warp-gateway upgrade --ref v0.4.1 --yes
+sudo warp-gateway upgrade --ref vX.Y.Z --yes
 ```
 
-Before host changes, the bootstrap resolves the requested tag to one exact Git object, checks out that object detached, and requires the downloaded `VERSION` to be the same value as the requested tag without the `v` prefix. For example, a requested tag `v0.4.1` must contain exactly `VERSION=0.4.1`. A missing, malformed, or mismatched `VERSION`, an unresolvable ref, or a checkout that does not match the resolved object stops the upgrade before the backup or service-maintenance phase. There is no fallback to another ref.
+Before host changes, the bootstrap resolves the requested tag to its exact remote
+Git object and fetches that pinned object. Release tags may be lightweight or
+annotated. The bootstrap deterministically peels the pinned object to a commit,
+checks out that exact commit detached, and verifies `HEAD` against the peeled
+commit while retaining the original tag-object identity for audit. The downloaded
+`VERSION` must still be the requested semantic tag without the `v` prefix. For
+example, a requested tag `v1.2.3` must contain exactly `VERSION=1.2.3`. A missing,
+malformed, or mismatched `VERSION`, an unresolvable ref, an object that cannot peel
+to a commit, or a checkout that differs from the peeled commit stops the upgrade
+before the backup or service-maintenance phase. There is no fallback to another
+ref.
 
 `--ref main` remains an explicit unreleased-code path. It is resolved to an exact branch object and still requires a valid semantic `VERSION`; use it only for intentional non-production testing.
+
+## v0.5.0 annotated-tag compatibility bridge
+
+The remote bootstrap installed by `v0.5.0` rejects normal annotated release tags
+before any host mutation. It correctly pins the tag object and checks out the
+tagged commit, but then incorrectly compares the checked-out commit OID with the
+distinct annotated-tag object OID. `v0.5.1` fixes that comparison without changing
+the project's annotated-tag release policy. Do not delete, recreate, or replace
+an existing release tag to work around the issue.
+
+For the first upgrade from a host running the affected bootstrap, download the
+official `v0.5.1` release archive and checksum manifest, verify the archive, and
+invoke its top-level upgrader directly:
+
+```bash
+mkdir warp-egress-gateway-0.5.1-bridge
+cd warp-egress-gateway-0.5.1-bridge
+curl -fLO https://github.com/Alireza-Oliaiy/warp-egress-gateway/releases/download/v0.5.1/warp-egress-gateway-0.5.1.tar.gz
+curl -fLO https://github.com/Alireza-Oliaiy/warp-egress-gateway/releases/download/v0.5.1/warp-egress-gateway-0.5.1-SHA256SUMS.txt
+grep ' warp-egress-gateway-0.5.1.tar.gz$' warp-egress-gateway-0.5.1-SHA256SUMS.txt | sha256sum -c -
+tar -xzf warp-egress-gateway-0.5.1.tar.gz
+cd warp-egress-gateway-0.5.1
+sudo bash upgrade.sh --mode native --dry-run
+sudo bash upgrade.sh --mode native --yes
+```
+
+Use `--mode docker` instead on an affected Docker host. After `v0.5.1` is
+installed, subsequent upgrades can use the normal `warp-gateway upgrade --ref
+vX.Y.Z` bootstrap path.
 
 ## Legacy Native upgrade from 0.3.x
 
@@ -73,7 +112,7 @@ The upgrader reuses the existing `/etc/wireguard/<WARP_IF>.conf`; it does not re
 Prefer the installed remote bootstrap after `0.4.0` so the live Compose source tree is not modified before the backup is created:
 
 ```bash
-sudo warp-gateway-upgrade --mode docker --ref v0.4.1
+sudo warp-gateway-upgrade --mode docker --ref vX.Y.Z
 ```
 
 A separate, newly cloned release checkout can also run `sudo bash upgrade.sh --mode docker`. Do not `git pull` the live Docker project tree before the upgrader has captured its rollback copy.
