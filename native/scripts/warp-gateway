@@ -10,6 +10,7 @@ cmd=${1:-status}
 case "${cmd}" in
   status) exec "${LIB_DIR}/status.sh" ;;
   health) exec "${LIB_DIR}/healthcheck.sh" ;;
+  health-readonly) exec "${LIB_DIR}/health-readonly.sh" ;;
   monitor) exec "${LIB_DIR}/monitor.sh" ;;
   diagnostics) shift; exec "${LIB_DIR}/diagnostics.sh" "$@" ;;
   version)
@@ -46,7 +47,7 @@ case "${cmd}" in
     exec journalctl -u warp-gateway-firewall.service -u "wg-quick@${WARP_IF}.service" -u warp-gateway.service -u warp-gateway-healthcheck.service -u warp-monitor.service -f
     ;;
   *)
-    echo "Usage: warp-gateway {status|health|monitor|history|failures|diagnostics|version|upgrade|rollback|restart|lockdown|start|logs}" >&2
+    echo "Usage: warp-gateway {status|health|health-readonly|monitor|history|failures|diagnostics|version|upgrade|rollback|restart|lockdown|start|logs}" >&2
     exit 2
     ;;
 esac

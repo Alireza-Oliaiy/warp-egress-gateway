@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-FILE="${ROOT}/native/scripts/firewall-apply.sh"
+FILE="${ROOT}/native/scripts/mutation-transactions.sh"
 
 kill_line=$(grep -n 'WARP_KILL_SWITCH' "${FILE}" | head -n1 | cut -d: -f1)
 return_line=$(grep -n 'WARP_RETURN_ACCEPT' "${FILE}" | head -n1 | cut -d: -f1)
@@ -90,6 +90,18 @@ require(native, 'Service', 'ExecStop', '/bin/true', 'Native firewall guard')
 require(docker, 'Service', 'ExecStop', '/bin/true', 'Docker host guard')
 require(wg, 'Unit', 'Requires', 'warp-gateway-firewall.service', 'WireGuard drop-in')
 require(wg, 'Unit', 'After', 'warp-gateway-firewall.service', 'WireGuard drop-in')
+if wg[('Service', 'ExecStart')] != [
+    '/usr/local/lib/warp-egress-gateway/wg-quick-locked.sh', 'up', '%i'
+]:
+    raise SystemExit('WireGuard drop-in must delegate startup to the fixed lock wrapper')
+if wg[('Service', 'ExecStop')] != [
+    '/usr/local/lib/warp-egress-gateway/wg-quick-locked.sh', 'down', '%i'
+]:
+    raise SystemExit('WireGuard drop-in must delegate shutdown to the fixed lock wrapper')
+if wg[('Service', 'ExecReload')] != [
+    '/usr/local/lib/warp-egress-gateway/wg-quick-locked.sh', 'reload', '%i'
+]:
+    raise SystemExit('WireGuard drop-in must delegate reload to the fixed lock wrapper')
 require(gateway, 'Unit', 'Requires', 'warp-gateway-firewall.service', 'Policy-routing service')
 require(gateway, 'Unit', 'Requires', 'wg-quick@warp0.service', 'Policy-routing service')
 
@@ -124,7 +136,7 @@ docker_sysctl = (root / 'docker/setup.sh').read_text(encoding='utf-8')
 for content, label in ((native_sysctl, 'Native'), (docker_sysctl, 'Docker')):
     if 'net.ipv4.ip_forward=0' not in content:
         raise SystemExit(f'{label} persistent sysctl must default ip_forward to 0')
-for script, label in ((root / 'native/scripts/firewall-apply.sh', 'Native'),
+for script, label in ((root / 'native/scripts/mutation-transactions.sh', 'Native'),
                       (root / 'docker/host/guard-apply.sh', 'Docker')):
     content = script.read_text(encoding='utf-8')
     if 'destroy table inet' not in content or 'net.ipv4.ip_forward=1' not in content:
@@ -142,8 +154,9 @@ if command -v systemd-analyze >/dev/null 2>&1; then
       >"${unit_test_dir}/$(basename "${unit}")"
   done
   {
-    cat "${ROOT}/native/systemd/warp-gateway.conf"
-    printf '\n[Service]\nType=oneshot\nExecStart=/bin/true\n'
+    sed -E 's#^Exec(Start|Stop|Reload)=/usr/local/lib/warp-egress-gateway/wg-quick-locked.sh.*#Exec\1=/bin/true#' \
+      "${ROOT}/native/systemd/warp-gateway.conf"
+    printf '\n[Service]\nType=oneshot\n'
   } >"${unit_test_dir}/wg-quick@warp0.service"
   systemd-analyze verify \
     "${unit_test_dir}/warp-gateway-firewall.service" \

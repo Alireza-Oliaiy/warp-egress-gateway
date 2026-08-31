@@ -37,8 +37,9 @@ systemctl disable --now "wg-quick@${WARP_IF}.service" 2>/dev/null || true
 systemctl disable warp-gateway-firewall.service 2>/dev/null || true
 
 /usr/local/lib/warp-egress-gateway/route-down.sh 2>/dev/null || true
-/usr/local/lib/warp-egress-gateway/firewall-remove.sh 2>/dev/null || \
-  nft delete table inet warp_gateway 2>/dev/null || true
+if ! /usr/local/lib/warp-egress-gateway/firewall-remove.sh 2>/dev/null; then
+  echo "WARNING: locked firewall removal failed; leaving the fail-closed table loaded." >&2
+fi
 
 rm -f /etc/systemd/system/warp-gateway.service \
       /etc/systemd/system/warp-gateway-firewall.service \

@@ -82,9 +82,7 @@ healthcheck_is_healthy() {
     && ${ROUTE_STATE} == ok && ${NFT_STATE} == ok ]]
 }
 
-healthcheck_run() {
-  local auto_recover=${AUTO_RECOVER:-false} warp_ipv4
-
+healthcheck_reset_state() {
   WG_STATE=down
   DIRECT_STATE=fail
   DIRECT_RC=none
@@ -93,6 +91,12 @@ healthcheck_run() {
   ROUTE_STATE=rule_query_failed
   NFT_STATE=fail
   RECOVERY_STATE=none
+}
+
+# Internal observation primitive. Callers are responsible for acquiring the
+# appropriate shared or exclusive lock before entering this function.
+healthcheck_observe_locked() {
+  healthcheck_reset_state
 
   if healthcheck_wireguard_ready; then
     WG_STATE=up
@@ -106,21 +110,137 @@ healthcheck_run() {
   if ! ROUTE_STATE=$(policy_routing_status); then
     ROUTE_STATE=rule_query_failed
   fi
+  if [[ ${WG_STATE} == up && ${ROUTE_STATE} == ok && ${NFT_STATE} == ok ]] \
+    && healthcheck_probe_warp; then
+    WARP_STATE=on
+  fi
+}
+
+healthcheck_observe_upstream_locked() {
+  local upstream_ip=${UPSTREAM_MONITOR_IP:-auto}
+
+  UPSTREAM_STATE=skip
+  if [[ ${upstream_ip} == off ]]; then
+    return 0
+  fi
+  if [[ ${upstream_ip} == auto ]]; then
+    upstream_ip=
+    if [[ ${TRUSTED_SOURCE_CIDR} == */32 ]]; then
+      upstream_ip=${TRUSTED_SOURCE_CIDR%%/*}
+    fi
+  fi
+  [[ -n ${upstream_ip} ]] || return 0
+
+  UPSTREAM_STATE=fail
+  if ping -I "${TRANSIT_IF}" -c 1 -W 1 "${upstream_ip}" >/dev/null 2>&1; then
+    UPSTREAM_STATE=ok
+  fi
+}
+
+healthcheck_observe_units_locked() {
+  SERVICE_STATE=fail
+  TIMER_STATE=fail
+
+  if systemctl is-active --quiet \
+    warp-gateway-firewall.service \
+    "wg-quick@${WARP_IF}.service" \
+    warp-gateway.service; then
+    SERVICE_STATE=ok
+  fi
+  if systemctl is-active --quiet \
+    warp-gateway-healthcheck.timer \
+    warp-monitor.timer; then
+    TIMER_STATE=ok
+  fi
+}
+
+healthcheck_readonly_reason() {
+  if [[ ${SERVICE_STATE} != ok ]]; then
+    printf 'services\n'
+  elif [[ ${TIMER_STATE} != ok ]]; then
+    printf 'monitoring\n'
+  elif [[ ${UPSTREAM_STATE} == fail ]]; then
+    printf 'upstream\n'
+  else
+    healthcheck_failure_reason
+  fi
+}
+
+healthcheck_readonly_is_healthy() {
+  healthcheck_is_healthy \
+    && [[ ${UPSTREAM_STATE} != fail ]] \
+    && [[ ${SERVICE_STATE} == ok ]] \
+    && [[ ${TIMER_STATE} == ok ]]
+}
+
+# Structurally read-only evaluator. It has no recovery mode, recovery callback,
+# mutation adapter, or AUTO_RECOVER branch. Gateway failure is a completed
+# evaluation and therefore returns success with HEALTH=FAIL.
+healthcheck_readonly_evaluate_locked() {
+  local health=FAIL reason
+
+  healthcheck_observe_locked
+  healthcheck_observe_upstream_locked
+  healthcheck_observe_units_locked
+
+  reason=$(healthcheck_readonly_reason)
+  if healthcheck_readonly_is_healthy; then
+    health=OK
+    reason=none
+  fi
+
+  printf 'EVALUATION=completed HEALTH=%s reason=%s wg=%s direct=%s direct_rc=%s warp=%s warp_rc=%s route=%s nft=%s upstream=%s services=%s timers=%s recovery=none\n' \
+    "${health}" "${reason}" "${WG_STATE}" "${DIRECT_STATE}" "${DIRECT_RC}" \
+    "${WARP_STATE}" "${WARP_RC}" "${ROUTE_STATE}" "${NFT_STATE}" \
+    "${UPSTREAM_STATE}" "${SERVICE_STATE}" "${TIMER_STATE}"
+  return 0
+}
+
+healthcheck_policy_repair_transaction_locked() {
+  if policy_routing_repair_locked; then
+    ROUTE_STATE=$(policy_routing_status)
+    if [[ ${ROUTE_STATE} == ok ]]; then
+      RECOVERY_STATE=policy
+      if healthcheck_probe_warp; then
+        WARP_STATE=on
+      fi
+    fi
+  fi
+}
+
+healthcheck_tunnel_finalize_locked() {
+  local warp_ipv4
+
+  if ! healthcheck_wireguard_ready; then
+    WG_STATE=down
+    return 1
+  fi
+  WG_STATE=up
+  warp_ipv4=$(warp_ipv4_address) || return 1
+  policy_routing_apply_locked "${warp_ipv4}" || return 1
+  ROUTE_STATE=$(policy_routing_status)
+  [[ ${ROUTE_STATE} == ok ]] || return 1
+  if healthcheck_probe_warp; then
+    WARP_STATE=on
+    RECOVERY_STATE=tunnel
+    return 0
+  fi
+  return 1
+}
+
+healthcheck_run() {
+  local auto_recover=${AUTO_RECOVER:-false}
+
+  if ! admin_lock_run_shared healthcheck_observe_locked; then
+    healthcheck_reset_state
+    healthcheck_emit FAIL observation_unavailable
+    return 1
+  fi
 
   # Project-owned policy routing is safe to restore independently of
   # AUTO_RECOVER, but only while WireGuard and the fail-closed guard are ready.
   if [[ ${ROUTE_STATE} != ok && ${WG_STATE} == up && ${NFT_STATE} == ok ]]; then
-    if policy_routing_repair; then
-      ROUTE_STATE=$(policy_routing_status)
-      if [[ ${ROUTE_STATE} == ok ]]; then
-        RECOVERY_STATE=policy
-      fi
-    fi
-  fi
-
-  if [[ ${WG_STATE} == up && ${ROUTE_STATE} == ok && ${NFT_STATE} == ok ]] \
-    && healthcheck_probe_warp; then
-    WARP_STATE=on
+    admin_lock_run_exclusive healthcheck_policy_repair_transaction_locked || true
   fi
 
   if healthcheck_is_healthy; then
@@ -134,17 +254,7 @@ healthcheck_run() {
     { [[ ${WG_STATE} != up ]] || [[ ${ROUTE_STATE} == ok && ${WARP_STATE} != on ]]; }; then
     if systemctl restart "wg-quick@${WARP_IF}.service"; then
       sleep 3
-      if healthcheck_wireguard_ready; then
-        WG_STATE=up
-        warp_ipv4=$(warp_ipv4_address)
-        if policy_routing_apply "${warp_ipv4}"; then
-          ROUTE_STATE=$(policy_routing_status)
-          if [[ ${ROUTE_STATE} == ok ]] && healthcheck_probe_warp; then
-            WARP_STATE=on
-            RECOVERY_STATE=tunnel
-          fi
-        fi
-      fi
+      admin_lock_run_exclusive healthcheck_tunnel_finalize_locked || true
     fi
   fi
 

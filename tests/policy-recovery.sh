@@ -19,7 +19,10 @@ MOCK_BIN="${TEST_DIR}/bin"
 MOCK_RULES_FILE="${TEST_DIR}/rules"
 MOCK_ROUTE_FILE="${TEST_DIR}/routes"
 MOCK_IP_LOG="${TEST_DIR}/ip.log"
+TEST_LOCK_PARENT="${TEST_DIR}/run/warp-egress-gateway"
+TEST_LOCK_PATH="${TEST_LOCK_PARENT}/admin-mutation.lock"
 mkdir -p "${MOCK_BIN}"
+mkdir -m 0700 "${TEST_DIR}/run"
 : >"${MOCK_RULES_FILE}"
 : >"${MOCK_ROUTE_FILE}"
 : >"${MOCK_IP_LOG}"
@@ -114,8 +117,16 @@ cat >"${MOCK_BIN}/systemctl" <<'MOCK_SYSTEMCTL'
 set -Eeuo pipefail
 printf '%s\n' "$*" >>"${MOCK_SYSTEMCTL_LOG}"
 if [[ $* == 'is-active --quiet '* ]]; then
+  if flock -x -n "${TEST_LOCK_PATH}" true; then
+    echo 'health observation ran outside the shared lock' >&2
+    exit 98
+  fi
   [[ ${MOCK_WG_UP:-true} == true ]]
 elif [[ $* == 'restart wg-quick@warp0.service' ]]; then
+  if ! flock -x -n "${TEST_LOCK_PATH}" true; then
+    echo 'health held an outer lock across systemd WireGuard restart' >&2
+    exit 99
+  fi
   touch "${MOCK_TUNNEL_RECOVERED_FILE}"
 else
   exit 64
@@ -130,6 +141,7 @@ MOCK_SLEEP
 chmod +x "${MOCK_BIN}"/*
 PATH="${MOCK_BIN}:${PATH}"
 export PATH MOCK_RULES_FILE MOCK_ROUTE_FILE MOCK_IP_LOG
+export TEST_LOCK_PATH
 export MOCK_WG_UP=true MOCK_NFT_ACTIVE=true MOCK_WARP_IPV4=192.0.2.2
 export MOCK_NFT_MODE=drop
 MOCK_SYSTEMCTL_LOG="${TEST_DIR}/systemctl.log"
@@ -151,6 +163,16 @@ export SOURCE_RULE_PRIORITY INGRESS_RULE_PRIORITY NFT_TABLE
 source "${ROUTING_LIB}"
 # shellcheck source=../native/scripts/healthcheck-lib.sh
 source "${HEALTHCHECK_LIB}"
+
+admin_lock_run_shared() {
+  admin_lock_run_at shared "${TEST_LOCK_PARENT}" "${TEST_LOCK_PATH}" \
+    "$(id -u)" "$(id -g)" 1 "$@"
+}
+
+admin_lock_run_exclusive() {
+  admin_lock_run_at exclusive "${TEST_LOCK_PARENT}" "${TEST_LOCK_PATH}" \
+    "$(id -u)" "$(id -g)" 1 "$@"
+}
 
 set_rules() {
   printf '%s\n' "$@" >"${MOCK_RULES_FILE}"

@@ -23,6 +23,11 @@ required=(
   native/scripts/monitor.sh
   native/scripts/monitor-lib.sh
   native/scripts/healthcheck-lib.sh
+  native/scripts/health-readonly.sh
+  native/scripts/admin-lock.sh
+  native/scripts/mutation-transactions.sh
+  native/scripts/observation-entrypoints.sh
+  native/scripts/wg-quick-locked.sh
   native/scripts/routing.sh
   native/scripts/route-repair.sh
   native/systemd/warp-monitor.service
@@ -55,6 +60,10 @@ required=(
   tests/dashboard_deploy_test.py
   tests/profile-ipv4.sh
   tests/policy-recovery.sh
+  tests/health-lock.sh
+  tests/health-readonly.sh
+  tests/observation-locking.sh
+  tests/writer-locking.sh
   tests/run-all.sh
   tests/whitespace.sh
   docs/monitoring.md

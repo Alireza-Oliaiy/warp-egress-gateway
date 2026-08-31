@@ -61,7 +61,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates conntrack curl dnsutils git iproute2 jq nftables python3 \
-  tcpdump wireguard-tools
+  tcpdump util-linux wireguard-tools
 
 if [[ ${MANAGE_TRANSIT_ADDRESS:-false} == "true" ]]; then
   command -v netplan >/dev/null || die "netplan is required when MANAGE_TRANSIT_ADDRESS=true."

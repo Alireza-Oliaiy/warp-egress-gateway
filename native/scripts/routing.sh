@@ -5,6 +5,10 @@ if ! declare -F warp_ipv4_address >/dev/null 2>&1; then
   # shellcheck source=common.sh
   source "${ROUTING_SCRIPT_DIR}/common.sh"
 fi
+if ! declare -F admin_lock_run_exclusive >/dev/null 2>&1; then
+  # shellcheck source=admin-lock.sh
+  source "${ROUTING_SCRIPT_DIR}/admin-lock.sh"
+fi
 
 routing_diagnostic() {
   if declare -F warn >/dev/null 2>&1; then
@@ -117,7 +121,7 @@ kill_switch_active() {
   ' <<<"${rules}"
 }
 
-policy_routing_apply() {
+policy_routing_apply_locked() {
   local warp_ipv4=${1:-} state
   if [[ -z ${warp_ipv4} ]]; then
     warp_ipv4=$(warp_ipv4_address) || {
@@ -140,7 +144,7 @@ policy_routing_apply() {
   fi
 }
 
-policy_routing_repair() {
+policy_routing_repair_locked() {
   local state warp_ipv4
 
   ip link show "${WARP_IF}" >/dev/null 2>&1 || {
@@ -166,5 +170,13 @@ policy_routing_repair() {
   fi
 
   routing_diagnostic "Policy-routing drift detected (${state}); reapplying project-owned rules only."
-  policy_routing_apply "${warp_ipv4}"
+  policy_routing_apply_locked "${warp_ipv4}"
+}
+
+policy_routing_apply() {
+  admin_lock_run_exclusive policy_routing_apply_locked "$@"
+}
+
+policy_routing_repair() {
+  admin_lock_run_exclusive policy_routing_repair_locked "$@"
 }

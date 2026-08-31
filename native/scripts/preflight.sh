@@ -10,6 +10,7 @@ load_config
 command -v ip >/dev/null || die "iproute2 is required."
 command -v nft >/dev/null || die "nftables is required."
 command -v wg >/dev/null || die "wireguard-tools is required."
+command -v flock >/dev/null || die "util-linux flock is required."
 
 ip link show "${UPLINK_IF}" >/dev/null 2>&1 || die "Uplink interface ${UPLINK_IF} does not exist."
 ip link show "${TRANSIT_IF}" >/dev/null 2>&1 || die "Transit interface ${TRANSIT_IF} does not exist."

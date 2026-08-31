@@ -3,6 +3,9 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=admin-lock.sh
+source "${SCRIPT_DIR}/admin-lock.sh"
+# shellcheck source=mutation-transactions.sh
+source "${SCRIPT_DIR}/mutation-transactions.sh"
 require_root
-nft delete table inet "${NFT_TABLE}" 2>/dev/null || true
-log "Removed nftables table inet ${NFT_TABLE}."
+admin_lock_run_exclusive firewall_remove_transaction_locked

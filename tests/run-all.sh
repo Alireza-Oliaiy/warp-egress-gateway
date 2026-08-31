@@ -20,6 +20,10 @@ tests=(
   syntax.sh
   whitespace.sh
   security-order.sh
+  health-lock.sh
+  health-readonly.sh
+  observation-locking.sh
+  writer-locking.sh
   policy-recovery.sh
   monitoring.sh
   dashboard.sh

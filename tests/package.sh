@@ -24,6 +24,9 @@ tar -tzf "${OUT}/${NAME}.tar.gz" >"${tar_list}"
 for required in \
   VERSION LICENSE README.md README.fa.md CHANGELOG.md setup.sh upgrade.sh rollback.sh \
   native/install.sh docker/setup.sh shared/upgrade/remote-upgrade.sh \
+  native/scripts/admin-lock.sh native/scripts/health-readonly.sh \
+  native/scripts/mutation-transactions.sh native/scripts/observation-entrypoints.sh \
+  native/scripts/wg-quick-locked.sh native/systemd/warp-gateway.conf \
   web/__init__.py web/dashboard/README.md web/dashboard/__init__.py \
   web/dashboard/collector.py web/dashboard/schema.py web/dashboard/server.py \
   web/dashboard/status-schema.json \
@@ -39,8 +42,11 @@ for required in \
   web/dashboard/deploy/systemd/warp-dashboard-collector.timer \
   web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf \
   docs/upgrade.md docs/security.md docs/web-console/READ_ONLY_DASHBOARD.md \
+  docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md \
   tests/dashboard.sh tests/dashboard_test.py tests/dashboard_ui_test.js \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
+  tests/health-lock.sh tests/health-readonly.sh tests/observation-locking.sh \
+  tests/writer-locking.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
   grep -qx "${NAME}/${required}" "${tar_list}" || {
     echo "Packaged TAR is missing required file: ${required}" >&2; exit 1;
@@ -85,6 +91,12 @@ required = {
     f'{name}/VERSION', f'{name}/LICENSE', f'{name}/README.md',
     f'{name}/README.fa.md', f'{name}/CHANGELOG.md', f'{name}/setup.sh',
     f'{name}/upgrade.sh', f'{name}/rollback.sh', f'{name}/native/install.sh',
+    f'{name}/native/scripts/admin-lock.sh',
+    f'{name}/native/scripts/health-readonly.sh',
+    f'{name}/native/scripts/mutation-transactions.sh',
+    f'{name}/native/scripts/observation-entrypoints.sh',
+    f'{name}/native/scripts/wg-quick-locked.sh',
+    f'{name}/native/systemd/warp-gateway.conf',
     f'{name}/web/__init__.py', f'{name}/web/dashboard/README.md',
     f'{name}/web/dashboard/__init__.py',
     f'{name}/web/dashboard/collector.py',
@@ -109,9 +121,12 @@ required = {
     f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
     f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
     f'{name}/docs/web-console/READ_ONLY_DASHBOARD.md',
+    f'{name}/docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md',
     f'{name}/tests/dashboard.sh', f'{name}/tests/dashboard_test.py',
     f'{name}/tests/dashboard_ui_test.js', f'{name}/tests/dashboard-deploy.sh',
     f'{name}/tests/dashboard_deploy_test.py', f'{name}/tests/syntax.sh',
+    f'{name}/tests/health-lock.sh', f'{name}/tests/health-readonly.sh',
+    f'{name}/tests/observation-locking.sh', f'{name}/tests/writer-locking.sh',
     f'{name}/docker/generated/.gitkeep',
     f'{name}/docker/state/.gitkeep',
 }
