@@ -192,6 +192,16 @@ session-bound status smoke test. Conflicting identity, symlink, ownership, or
 mode state fails closed. Reinstallation is deterministic and preserves a safe
 pre-existing identity.
 
+The first controlled CC qualification safely stopped when systemd reported the
+service active about one second before the Python process completed its socket
+bind. The root cause was the installer's former single-shot listener assertion.
+The installer now waits up to 10 seconds on a monotonic deadline, polling every
+200 milliseconds for exactly one `AF_INET` listener at `127.0.0.1:8788`.
+Listener absence alone is retried; a failed/inactive service, any forbidden or
+wildcard address, or multiple listeners fails immediately. The fixed listener
+and service security boundary is unchanged. Slice 1B remains pending a fresh
+CC host-qualification run.
+
 `admin/deploy/uninstall.sh` stops/disables only `warp-admin.service`, removes
 only exact Admin files and directories, and removes the account only when the
 root-owned project marker and strict identity both agree. Ambiguous identities
@@ -204,11 +214,13 @@ and ZIP payloads. Extracted-payload validation reruns the same test suite.
 
 ## Qualification coverage and remaining non-goals
 
-Focused tests cover the fixed listener, Host/proxy boundary, sessions/CSRF and
-expiry, strict body parser, CORS/security headers, per-binding/global limits,
-helper input/output and future-operation rejection, no-recovery command,
-lock-contention mapping, mutation tripwires, secret canaries, exact sudoers
-allow/deny matrix, service identity/hardening, text-only UI, safe
+Focused tests cover immediate and delayed exact-listener readiness, bounded
+no-listener timeout, failed/inactive/deactivating service transitions,
+forbidden and multiple listeners, the fixed Host/proxy boundary, sessions/CSRF
+and expiry, strict body parser, CORS/security headers, per-binding/global
+limits, helper input/output and future-operation rejection, no-recovery
+command, lock-contention mapping, mutation tripwires, secret canaries, exact
+sudoers allow/deny matrix, service identity/hardening, text-only UI, safe
 install/reinstall/uninstall, archive modes, Dashboard separation, and full
 repository regression.
 

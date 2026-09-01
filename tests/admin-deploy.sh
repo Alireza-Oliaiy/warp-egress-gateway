@@ -15,6 +15,7 @@ run_install() {
     WARP_ADMIN_TEST_ROOT="${rootfs}" \
     WARP_ADMIN_TEST_ACCOUNT="${account}" \
     WARP_ADMIN_TEST_FAIL="${WARP_ADMIN_TEST_FAIL:-}" \
+    WARP_ADMIN_TEST_LISTENER_SCENARIO="${WARP_ADMIN_TEST_LISTENER_SCENARIO:-immediate-exact}" \
     WARP_GATEWAY_PYTHON3="${PYTHON3_BIN}" \
     bash "${DEPLOY}/install.sh"
 }
@@ -93,6 +94,125 @@ if run_install "${symlink_root}" absent >"${TEST_AREA}/symlink.out" 2>&1; then
 fi
 grep -q 'GATE_DESTINATION' "${TEST_AREA}/symlink.out"
 [[ -z $(find "${outside}" -mindepth 1 -print -quit) ]]
+
+# Listener readiness fixtures are accepted only inside the explicit isolated
+# test mode and cannot become production listener/timeout controls.
+fixture_gate=${TEST_AREA}/listener-fixture-gate
+mkdir -p "${fixture_gate}"
+if WARP_ADMIN_TEST_ROOT="${fixture_gate}" WARP_ADMIN_TEST_LISTENER_SCENARIO=never \
+  bash "${DEPLOY}/install.sh" >"${TEST_AREA}/listener-fixture-gate.out" 2>&1; then
+  echo 'Admin installer accepted a readiness fixture outside test mode.' >&2
+  exit 1
+fi
+grep -q 'GATE_TEST_ROOT test fixtures require explicit test mode' \
+  "${TEST_AREA}/listener-fixture-gate.out"
+[[ -z $(find "${fixture_gate}" -mindepth 1 -print -quit) ]]
+
+# Listener readiness is bounded, retries absence only, and fails closed on
+# service failure or any unsafe listener state.
+listener_never=${TEST_AREA}/listener-never
+mkdir -p "${listener_never}"
+if WARP_ADMIN_TEST_LISTENER_SCENARIO=never \
+  run_install "${listener_never}" absent >"${TEST_AREA}/listener-never.out" 2>&1; then
+  echo 'Admin installer accepted a listener that never became ready.' >&2
+  exit 1
+fi
+grep -q 'GATE_LISTENER readiness timeout waiting for exactly 127.0.0.1:8788' \
+  "${TEST_AREA}/listener-never.out"
+
+# A scheduler/probe delay crossing the deadline cannot turn a late exact bind
+# into success. The synthetic clock jumps from 9750ms to 10250ms during sleep.
+listener_after_deadline=${TEST_AREA}/listener-after-deadline
+mkdir -p "${listener_after_deadline}"
+if WARP_ADMIN_TEST_LISTENER_SCENARIO=after-deadline-exact \
+  run_install "${listener_after_deadline}" absent \
+    >"${TEST_AREA}/listener-after-deadline.out" 2>&1; then
+  echo 'Admin installer accepted an exact listener after the readiness deadline.' >&2
+  exit 1
+fi
+grep -q 'GATE_LISTENER readiness timeout waiting for exactly 127.0.0.1:8788' \
+  "${TEST_AREA}/listener-after-deadline.out"
+if grep -q 'addresses=127.0.0.1:8788' \
+  "${listener_after_deadline}/var/lib/warp-egress-admin-console/test-actions.log"; then
+  echo 'Admin installer probed and accepted readiness after the deadline.' >&2
+  exit 1
+fi
+
+listener_immediate=${TEST_AREA}/listener-immediate
+mkdir -p "${listener_immediate}"
+WARP_ADMIN_TEST_LISTENER_SCENARIO=immediate-exact \
+  run_install "${listener_immediate}" absent >/dev/null
+grep -qx 'listener poll=1 service=active count=1 addresses=127.0.0.1:8788' \
+  "${listener_immediate}/var/lib/warp-egress-admin-console/test-actions.log"
+
+listener_delayed=${TEST_AREA}/listener-delayed
+mkdir -p "${listener_delayed}"
+WARP_ADMIN_TEST_LISTENER_SCENARIO=delayed-exact \
+  run_install "${listener_delayed}" absent >/dev/null
+grep -qx 'listener poll=1 service=active count=0 addresses=none' \
+  "${listener_delayed}/var/lib/warp-egress-admin-console/test-actions.log"
+grep -qx 'listener poll=3 service=active count=1 addresses=127.0.0.1:8788' \
+  "${listener_delayed}/var/lib/warp-egress-admin-console/test-actions.log"
+
+for state in failed inactive deactivating; do
+  listener_service_failed=${TEST_AREA}/listener-service-${state}
+  mkdir -p "${listener_service_failed}"
+  if WARP_ADMIN_TEST_LISTENER_SCENARIO=service-${state} \
+    run_install "${listener_service_failed}" absent >"${TEST_AREA}/listener-service-${state}.out" 2>&1; then
+    echo "Admin installer waited through a ${state} service." >&2
+    exit 1
+  fi
+  grep -q "GATE_SERVICE readiness failed: warp-admin.service is ${state}" \
+    "${TEST_AREA}/listener-service-${state}.out"
+  [[ $(grep -c '^listener poll=' \
+    "${listener_service_failed}/var/lib/warp-egress-admin-console/test-actions.log") -eq 2 ]]
+done
+
+for scenario in \
+  forbidden-wildcard \
+  forbidden-management \
+  forbidden-transit \
+  forbidden-loopback-alt \
+  forbidden-ipv6-loopback \
+  forbidden-ipv6-any; do
+  listener_forbidden=${TEST_AREA}/listener-${scenario}
+  mkdir -p "${listener_forbidden}"
+  if WARP_ADMIN_TEST_LISTENER_SCENARIO=${scenario} \
+    run_install "${listener_forbidden}" absent >"${TEST_AREA}/listener-${scenario}.out" 2>&1; then
+    echo "Admin installer accepted forbidden listener scenario: ${scenario}." >&2
+    exit 1
+  fi
+  grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 127.0.0.1:8788' \
+    "${TEST_AREA}/listener-${scenario}.out"
+  [[ $(grep -c '^listener poll=' \
+    "${listener_forbidden}/var/lib/warp-egress-admin-console/test-actions.log") -eq 1 ]]
+done
+
+listener_multiple=${TEST_AREA}/listener-multiple
+mkdir -p "${listener_multiple}"
+if WARP_ADMIN_TEST_LISTENER_SCENARIO=multiple \
+  run_install "${listener_multiple}" absent >"${TEST_AREA}/listener-multiple.out" 2>&1; then
+  echo 'Admin installer accepted multiple listeners on port 8788.' >&2
+  exit 1
+fi
+grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 127.0.0.1:8788' \
+  "${TEST_AREA}/listener-multiple.out"
+[[ $(grep -c '^listener poll=' \
+  "${listener_multiple}/var/lib/warp-egress-admin-console/test-actions.log") -eq 1 ]]
+
+# A failed readiness gate remains safely removable using the dedicated Admin
+# uninstaller and does not leave any Admin-owned resource behind.
+run_uninstall "${listener_never}" absent >/dev/null
+for removed in \
+  "${listener_never}/opt/warp-egress-admin-console" \
+  "${listener_never}/run/warp-egress-admin-console" \
+  "${listener_never}/etc/warp-egress-admin-console" \
+  "${listener_never}/etc/systemd/system/warp-admin.service" \
+  "${listener_never}/etc/sudoers.d/warp-egress-gateway-admin" \
+  "${listener_never}/usr/local/libexec/warp-egress-gateway/warp-admin-helper" \
+  "${listener_never}/usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py"; do
+  [[ ! -e ${removed} ]]
+done
 
 # Every post-install gate is fail closed and never emits success.
 for failure in sudoers metadata listener http; do

@@ -6,7 +6,13 @@ SOURCE_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 TEST_MODE=false
 ROOT_PREFIX=""
 TEST_FAIL=""
+TEST_LISTENER_SCENARIO=immediate-exact
+TEST_READINESS_NOW_MS=0
+READINESS_POLL=0
 PYTHON3_BIN=/usr/bin/python3
+readonly ADMIN_LISTENER='127.0.0.1:8788'
+readonly LISTENER_READINESS_TIMEOUT_MS=10000
+readonly LISTENER_READINESS_POLL_SECONDS=0.2
 
 log() { printf 'ADMIN_INSTALL %s\n' "$*"; }
 die() { printf 'ADMIN_INSTALL_ERROR %s\n' "$*" >&2; exit 1; }
@@ -23,9 +29,12 @@ if [[ ${WARP_ADMIN_TEST_MODE:-0} == 1 ]]; then
   TEST_FAIL=${WARP_ADMIN_TEST_FAIL:-}
   [[ -z ${TEST_FAIL} || ${TEST_FAIL} =~ ^(sudoers|metadata|listener|http)$ ]] \
     || die 'GATE_TEST_FAILURE unknown injected failure'
+  TEST_LISTENER_SCENARIO=${WARP_ADMIN_TEST_LISTENER_SCENARIO:-immediate-exact}
+  [[ ${TEST_LISTENER_SCENARIO} =~ ^(immediate-exact|delayed-exact|after-deadline-exact|never|service-failed|service-inactive|service-deactivating|forbidden-wildcard|forbidden-management|forbidden-transit|forbidden-loopback-alt|forbidden-ipv6-loopback|forbidden-ipv6-any|multiple)$ ]] \
+    || die 'GATE_TEST_LISTENER unknown readiness scenario'
   PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
-elif [[ -n ${WARP_ADMIN_TEST_ROOT:-} ]]; then
-  die 'GATE_TEST_ROOT test root requires explicit test mode'
+elif [[ -n ${WARP_ADMIN_TEST_ROOT:-} || -n ${WARP_ADMIN_TEST_LISTENER_SCENARIO:-} ]]; then
+  die 'GATE_TEST_ROOT test fixtures require explicit test mode'
 else
   [[ ${EUID} -eq 0 ]] || die 'GATE_ROOT run as root'
 fi
@@ -216,6 +225,134 @@ install_file() {
   mv -f -- "${temporary}" "${destination}"
 }
 
+readiness_set_now() {
+  local uptime whole fraction
+  if [[ ${TEST_MODE} == true ]]; then
+    READINESS_NOW_MS=${TEST_READINESS_NOW_MS}
+    return
+  fi
+  read -r uptime _ </proc/uptime || die 'GATE_LISTENER monotonic clock unavailable'
+  [[ ${uptime} =~ ^[0-9]+\.[0-9]+$ ]] || die 'GATE_LISTENER monotonic clock is malformed'
+  whole=${uptime%%.*}
+  fraction=${uptime#*.}000
+  fraction=${fraction:0:3}
+  READINESS_NOW_MS=$((10#${whole} * 1000 + 10#${fraction}))
+}
+
+readiness_sleep() {
+  if [[ ${TEST_MODE} == true ]]; then
+    if [[ ${TEST_LISTENER_SCENARIO} == after-deadline-exact && ${TEST_READINESS_NOW_MS} -eq 9750 ]]; then
+      TEST_READINESS_NOW_MS=10250
+    else
+      TEST_READINESS_NOW_MS=$((TEST_READINESS_NOW_MS + 250))
+    fi
+  else
+    /usr/bin/sleep "${LISTENER_READINESS_POLL_SECONDS}"
+  fi
+}
+
+admin_service_state() {
+  if [[ ${TEST_MODE} == true ]]; then
+    if [[ ${TEST_LISTENER_SCENARIO} == service-* && ${READINESS_POLL} -ge 2 ]]; then
+      printf '%s\n' "${TEST_LISTENER_SCENARIO#service-}"
+    else
+      printf 'active\n'
+    fi
+    return
+  fi
+  /usr/bin/systemctl is-active warp-admin.service 2>/dev/null || true
+}
+
+admin_listener_snapshot() {
+  if [[ ${TEST_MODE} == true ]]; then
+    case "${TEST_LISTENER_SCENARIO}" in
+      immediate-exact) printf '%s\n' "${ADMIN_LISTENER}" ;;
+      delayed-exact)
+        if [[ ${READINESS_POLL} -ge 3 ]]; then printf '%s\n' "${ADMIN_LISTENER}"; fi
+        ;;
+      after-deadline-exact)
+        if [[ ${READINESS_NOW_MS} -ge 10250 ]]; then printf '%s\n' "${ADMIN_LISTENER}"; fi
+        ;;
+      never|service-*) ;;
+      forbidden-wildcard) printf '0.0.0.0:8788\n' ;;
+      forbidden-management) printf '172.21.31.5:8788\n' ;;
+      forbidden-transit) printf '10.1.1.222:8788\n' ;;
+      forbidden-loopback-alt) printf '127.0.0.2:8788\n' ;;
+      forbidden-ipv6-loopback) printf '[::1]:8788\n' ;;
+      forbidden-ipv6-any) printf '[::]:8788\n' ;;
+      multiple) printf '%s\n0.0.0.0:8788\n' "${ADMIN_LISTENER}" ;;
+    esac
+    return
+  fi
+  /usr/bin/ss -H -ltn 'sport = :8788' | /usr/bin/awk '{print $4}'
+}
+
+wait_for_admin_listener() {
+  local deadline service_state listener_output addresses
+  local -a listeners=()
+
+  if [[ ${TEST_FAIL} == listener ]]; then
+    die 'GATE_LISTENER injected test failure'
+  fi
+  readiness_set_now
+  deadline=$((READINESS_NOW_MS + LISTENER_READINESS_TIMEOUT_MS))
+
+  while true; do
+    if (( READINESS_POLL > 0 )); then
+      readiness_set_now
+      if (( READINESS_NOW_MS >= deadline )); then
+        die "GATE_LISTENER readiness timeout waiting for exactly ${ADMIN_LISTENER}"
+      fi
+    fi
+    READINESS_POLL=$((READINESS_POLL + 1))
+    service_state=$(admin_service_state)
+    case "${service_state}" in
+      active|activating) ;;
+      failed|inactive|deactivating)
+        if [[ ${TEST_MODE} == true ]]; then
+          printf 'listener poll=%s service=%s count=not_checked addresses=not_checked\n' \
+            "${READINESS_POLL}" "${service_state}" >>"${TEST_ACTIONS}"
+        fi
+        die "GATE_SERVICE readiness failed: warp-admin.service is ${service_state}"
+        ;;
+      *) die "GATE_SERVICE readiness failed: warp-admin.service state is ${service_state:-unknown}" ;;
+    esac
+
+    listeners=()
+    if ! listener_output=$(admin_listener_snapshot); then
+      die 'GATE_LISTENER listener inspection failed'
+    fi
+    if [[ -n ${listener_output} ]]; then
+      mapfile -t listeners <<<"${listener_output}"
+    fi
+    if [[ ${#listeners[@]} -eq 0 ]]; then
+      addresses=none
+    else
+      addresses=$(IFS=,; printf '%s' "${listeners[*]}")
+    fi
+    if [[ ${TEST_MODE} == true ]]; then
+      printf 'listener poll=%s service=%s count=%s addresses=%s\n' \
+        "${READINESS_POLL}" "${service_state}" "${#listeners[@]}" "${addresses}" \
+        >>"${TEST_ACTIONS}"
+    fi
+
+    if [[ ${#listeners[@]} -gt 0 ]]; then
+      if [[ ${#listeners[@]} -ne 1 || ${listeners[0]} != "${ADMIN_LISTENER}" ]]; then
+        die "GATE_LISTENER unsafe listener state while waiting for exactly ${ADMIN_LISTENER}"
+      fi
+    fi
+
+    readiness_set_now
+    if (( READINESS_NOW_MS >= deadline )); then
+      die "GATE_LISTENER readiness timeout waiting for exactly ${ADMIN_LISTENER}"
+    fi
+    if [[ ${#listeners[@]} -eq 1 ]]; then
+      return 0
+    fi
+    readiness_sleep
+  done
+}
+
 if [[ ${TEST_MODE} == true ]]; then
   install_directory 0755 "${TEST_STATE_DIR}"
   : >>"${TEST_ACTIONS}"
@@ -294,15 +431,9 @@ else
     || die 'GATE_SERVICE warp-admin.service is not enabled'
 fi
 
-if [[ ${TEST_FAIL} == listener ]]; then
-  die 'GATE_LISTENER injected test failure'
-fi
+wait_for_admin_listener
 if [[ ${TEST_MODE} == true ]]; then
-  printf 'listener 127.0.0.1:8788 AF_INET only\n' >>"${TEST_ACTIONS}"
-else
-  mapfile -t listeners < <(/usr/bin/ss -H -ltn 'sport = :8788' | /usr/bin/awk '{print $4}')
-  [[ ${#listeners[@]} -eq 1 && ${listeners[0]} == 127.0.0.1:8788 ]] \
-    || die 'GATE_LISTENER expected exactly 127.0.0.1:8788'
+  printf 'listener %s AF_INET only\n' "${ADMIN_LISTENER}" >>"${TEST_ACTIONS}"
 fi
 
 if [[ ${TEST_FAIL} == http ]]; then
