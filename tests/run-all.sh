@@ -28,6 +28,9 @@ tests=(
   monitoring.sh
   dashboard.sh
   dashboard-deploy.sh
+  admin-console.sh
+  admin-sudoers.sh
+  admin-deploy.sh
   profile-ipv4.sh
   upgrade.sh
   docs.sh

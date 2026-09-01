@@ -1,0 +1,8 @@
+# WARP Admin Console: one zero-argument root helper for warp-admin only.
+Defaults:warp-admin env_reset
+Defaults:warp-admin secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults:warp-admin umask=0077
+Defaults:warp-admin umask_override
+Defaults:warp-admin log_allowed,log_denied
+
+warp-admin ALL=(root:root) NOPASSWD:NOSETENV: /usr/local/libexec/warp-egress-gateway/warp-admin-helper ""

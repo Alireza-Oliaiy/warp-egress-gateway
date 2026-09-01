@@ -1,0 +1,39 @@
+[Unit]
+Description=WARP Egress Gateway Admin Console
+After=network.target warp-gateway-firewall.service
+
+[Service]
+Type=simple
+User=warp-admin
+Group=warp-admin
+ExecStart=/usr/bin/python3 -I /opt/warp-egress-admin-console/app/admin/application.py
+Restart=on-failure
+RestartSec=3s
+RuntimeDirectory=warp-egress-admin-console
+RuntimeDirectoryMode=0700
+UMask=0077
+
+# NoNewPrivileges, PrivateUsers, and CapabilityBoundingSet are intentionally
+# omitted: this unprivileged process must execute one exact sudoers-authorized
+# setuid helper, whose read-only wg/nft observations need root netlink access.
+# The service user itself receives no effective or ambient capabilities.
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/run/warp-egress-gateway
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -41,10 +41,18 @@ for required in \
   web/dashboard/deploy/systemd/warp-dashboard-collector.service \
   web/dashboard/deploy/systemd/warp-dashboard-collector.timer \
   web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf \
+  admin/__init__.py admin/application.py admin/helper.py admin/protocol.py \
+  admin/static/index.html admin/static/admin.css admin/static/admin.js \
+  admin/deploy/install.sh admin/deploy/uninstall.sh \
+  admin/deploy/systemd/warp-admin.service \
+  admin/deploy/sudoers/warp-egress-gateway-admin \
   docs/upgrade.md docs/security.md docs/web-console/READ_ONLY_DASHBOARD.md \
   docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md \
+  docs/admin-console/SLICE_1B_READ_ONLY_ADMIN_CONSOLE.md \
   tests/dashboard.sh tests/dashboard_test.py tests/dashboard_ui_test.js \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
+  tests/admin-console.sh tests/admin_console_test.py tests/admin-sudoers.sh \
+  tests/admin-deploy.sh tests/admin_deploy_test.py \
   tests/health-lock.sh tests/health-readonly.sh tests/observation-locking.sh \
   tests/writer-locking.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
@@ -58,7 +66,8 @@ if grep -Eq "^${NAME}/(\\.git/|\\.github/|docs/superpowers/|release[^/]*/|CONTRI
 fi
 for executable in \
   setup.sh upgrade.sh rollback.sh tests/run-all.sh \
-  web/dashboard/deploy/install.sh web/dashboard/deploy/uninstall.sh; do
+  web/dashboard/deploy/install.sh web/dashboard/deploy/uninstall.sh \
+  admin/deploy/install.sh admin/deploy/uninstall.sh; do
   tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rwxr-xr-x .*${NAME}/${executable}$" >/dev/null || {
     echo "Packaged TAR executable mode is missing: ${executable}" >&2; exit 1;
   }
@@ -80,6 +89,18 @@ for regular in \
     echo "Packaged TAR regular-file mode is not 0644: ${regular}" >&2; exit 1;
   }
 done
+for regular in \
+  admin/__init__.py admin/application.py admin/helper.py admin/protocol.py \
+  admin/static/index.html admin/static/admin.css admin/static/admin.js \
+  admin/deploy/systemd/warp-admin.service; do
+  tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rw-r--r-- .*${NAME}/${regular}$" >/dev/null || {
+    echo "Packaged TAR Admin regular-file mode is not 0644: ${regular}" >&2; exit 1;
+  }
+done
+tar -tvzf "${OUT}/${NAME}.tar.gz" \
+  | grep -E "^-r--r----- .*${NAME}/admin/deploy/sudoers/warp-egress-gateway-admin$" >/dev/null || {
+    echo 'Packaged TAR Admin sudoers mode is not 0440.' >&2; exit 1;
+  }
 
 "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${NAME}" <<'PY'
 from pathlib import Path, PurePosixPath
@@ -118,13 +139,24 @@ required = {
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.service',
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer',
     f'{name}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf',
+    f'{name}/admin/__init__.py', f'{name}/admin/application.py',
+    f'{name}/admin/helper.py', f'{name}/admin/protocol.py',
+    f'{name}/admin/static/index.html', f'{name}/admin/static/admin.css',
+    f'{name}/admin/static/admin.js', f'{name}/admin/deploy/install.sh',
+    f'{name}/admin/deploy/uninstall.sh',
+    f'{name}/admin/deploy/systemd/warp-admin.service',
+    f'{name}/admin/deploy/sudoers/warp-egress-gateway-admin',
     f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
     f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
     f'{name}/docs/web-console/READ_ONLY_DASHBOARD.md',
     f'{name}/docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md',
+    f'{name}/docs/admin-console/SLICE_1B_READ_ONLY_ADMIN_CONSOLE.md',
     f'{name}/tests/dashboard.sh', f'{name}/tests/dashboard_test.py',
     f'{name}/tests/dashboard_ui_test.js', f'{name}/tests/dashboard-deploy.sh',
     f'{name}/tests/dashboard_deploy_test.py', f'{name}/tests/syntax.sh',
+    f'{name}/tests/admin-console.sh', f'{name}/tests/admin_console_test.py',
+    f'{name}/tests/admin-sudoers.sh', f'{name}/tests/admin-deploy.sh',
+    f'{name}/tests/admin_deploy_test.py',
     f'{name}/tests/health-lock.sh', f'{name}/tests/health-readonly.sh',
     f'{name}/tests/observation-locking.sh', f'{name}/tests/writer-locking.sh',
     f'{name}/docker/generated/.gitkeep',
@@ -184,6 +216,17 @@ expected = {
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.service': 0o644,
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer': 0o644,
     f'{name}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf': 0o644,
+    f'{name}/admin/deploy/install.sh': 0o755,
+    f'{name}/admin/deploy/uninstall.sh': 0o755,
+    f'{name}/admin/__init__.py': 0o644,
+    f'{name}/admin/application.py': 0o644,
+    f'{name}/admin/helper.py': 0o644,
+    f'{name}/admin/protocol.py': 0o644,
+    f'{name}/admin/static/index.html': 0o644,
+    f'{name}/admin/static/admin.css': 0o644,
+    f'{name}/admin/static/admin.js': 0o644,
+    f'{name}/admin/deploy/systemd/warp-admin.service': 0o644,
+    f'{name}/admin/deploy/sudoers/warp-egress-gateway-admin': 0o440,
 }
 with zipfile.ZipFile(archive_path) as archive:
     entries = {entry.filename: entry for entry in archive.infolist()}

@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
+DEPLOY=${ROOT}/admin/deploy
+TEST_AREA=$(mktemp -d)
+trap 'rm -rf "${TEST_AREA}"' EXIT
+
+(cd "${ROOT}" && "${PYTHON3_BIN}" tests/admin_deploy_test.py)
+
+run_install() {
+  local rootfs=$1 account=${2:-absent}
+  WARP_ADMIN_TEST_MODE=1 \
+    WARP_ADMIN_TEST_ROOT="${rootfs}" \
+    WARP_ADMIN_TEST_ACCOUNT="${account}" \
+    WARP_ADMIN_TEST_FAIL="${WARP_ADMIN_TEST_FAIL:-}" \
+    WARP_GATEWAY_PYTHON3="${PYTHON3_BIN}" \
+    bash "${DEPLOY}/install.sh"
+}
+
+run_uninstall() {
+  local rootfs=$1 account=${2:-absent}
+  WARP_ADMIN_TEST_MODE=1 \
+    WARP_ADMIN_TEST_ROOT="${rootfs}" \
+    WARP_ADMIN_TEST_ACCOUNT="${account}" \
+    bash "${DEPLOY}/uninstall.sh"
+}
+
+version_before=$(sha256sum "${ROOT}/VERSION" | awk '{print $1}')
+dashboard_before=$(find "${ROOT}/web/dashboard" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+native_before=$(find "${ROOT}/native" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+
+rootfs=${TEST_AREA}/rootfs
+mkdir -p "${rootfs}"
+output=$(run_install "${rootfs}" absent)
+grep -qx 'ADMIN_INSTALL_OK http://127.0.0.1:8788' <<<"${output}"
+
+required_app=(
+  __init__.py
+  application.py
+  protocol.py
+  static/index.html
+  static/admin.css
+  static/admin.js
+)
+for relative in "${required_app[@]}"; do
+  cmp "${ROOT}/admin/${relative}" "${rootfs}/opt/warp-egress-admin-console/app/admin/${relative}"
+  [[ $(stat -c '%a' "${rootfs}/opt/warp-egress-admin-console/app/admin/${relative}") == 644 ]]
+done
+cmp "${ROOT}/admin/helper.py" "${rootfs}/usr/local/libexec/warp-egress-gateway/warp-admin-helper"
+cmp "${ROOT}/admin/protocol.py" "${rootfs}/usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py"
+[[ $(stat -c '%a' "${rootfs}/usr/local/libexec/warp-egress-gateway/warp-admin-helper") == 755 ]]
+[[ $(stat -c '%a' "${rootfs}/usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py") == 644 ]]
+[[ $(stat -c '%a' "${rootfs}/etc/sudoers.d/warp-egress-gateway-admin") == 440 ]]
+[[ $(stat -c '%a' "${rootfs}/etc/systemd/system/warp-admin.service") == 644 ]]
+[[ $(stat -c '%a' "${rootfs}/run/warp-egress-admin-console") == 700 ]]
+[[ -f ${rootfs}/etc/warp-egress-admin-console/.warp-admin-created ]]
+[[ -f ${rootfs}/var/lib/warp-egress-admin-console/test-account ]]
+
+# A safe reinstall is idempotent and creates the project identity once.
+run_install "${rootfs}" absent >/dev/null
+[[ $(grep -c '^useradd warp-admin$' "${rootfs}/var/lib/warp-egress-admin-console/test-actions.log") == 1 ]]
+
+# Unsafe identity and unsafe existing destination metadata fail before replacement.
+unsafe=${TEST_AREA}/unsafe
+mkdir -p "${unsafe}"
+if run_install "${unsafe}" unsafe >"${TEST_AREA}/unsafe.out" 2>&1; then
+  echo 'Admin installer accepted an unsafe identity.' >&2
+  exit 1
+fi
+grep -q 'GATE_IDENTITY' "${TEST_AREA}/unsafe.out"
+[[ ! -e ${unsafe}/opt/warp-egress-admin-console ]]
+
+metadata=${TEST_AREA}/metadata
+mkdir -p "${metadata}/etc/systemd/system"
+: >"${metadata}/etc/systemd/system/warp-admin.service"
+chmod 0666 "${metadata}/etc/systemd/system/warp-admin.service"
+if run_install "${metadata}" absent >"${TEST_AREA}/metadata.out" 2>&1; then
+  echo 'Admin installer replaced unsafe existing metadata.' >&2
+  exit 1
+fi
+grep -q 'GATE_DESTINATION' "${TEST_AREA}/metadata.out"
+
+# Admin-owned destination roots are never followed through symlinks.
+symlink_root=${TEST_AREA}/symlink-root
+outside=${TEST_AREA}/outside
+mkdir -p "${symlink_root}/opt" "${outside}"
+ln -s "${outside}" "${symlink_root}/opt/warp-egress-admin-console"
+if run_install "${symlink_root}" absent >"${TEST_AREA}/symlink.out" 2>&1; then
+  echo 'Admin installer followed a destination symlink.' >&2
+  exit 1
+fi
+grep -q 'GATE_DESTINATION' "${TEST_AREA}/symlink.out"
+[[ -z $(find "${outside}" -mindepth 1 -print -quit) ]]
+
+# Every post-install gate is fail closed and never emits success.
+for failure in sudoers metadata listener http; do
+  failure_root=${TEST_AREA}/failure-${failure}
+  mkdir -p "${failure_root}"
+  if WARP_ADMIN_TEST_FAIL=${failure} run_install "${failure_root}" absent >"${TEST_AREA}/${failure}.out" 2>&1; then
+    echo "Admin installer claimed success after ${failure} failure." >&2
+    exit 1
+  fi
+  grep -q "GATE_${failure^^}" "${TEST_AREA}/${failure}.out"
+  if grep -q '^ADMIN_INSTALL_OK ' "${TEST_AREA}/${failure}.out"; then
+    echo "Admin installer emitted success after ${failure} failure." >&2
+    exit 1
+  fi
+done
+
+# Product-created identity and only Admin resources are removed.
+uninstall_output=$(run_uninstall "${rootfs}" absent)
+grep -qx 'ADMIN_UNINSTALL_OK' <<<"${uninstall_output}"
+for removed in \
+  "${rootfs}/opt/warp-egress-admin-console" \
+  "${rootfs}/run/warp-egress-admin-console" \
+  "${rootfs}/etc/warp-egress-admin-console" \
+  "${rootfs}/etc/systemd/system/warp-admin.service" \
+  "${rootfs}/etc/sudoers.d/warp-egress-gateway-admin" \
+  "${rootfs}/usr/local/libexec/warp-egress-gateway/warp-admin-helper" \
+  "${rootfs}/usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py" \
+  "${rootfs}/var/lib/warp-egress-admin-console/test-account"; do
+  [[ ! -e ${removed} ]]
+done
+
+# A safe pre-existing identity is preserved because no project marker exists.
+preexisting=${TEST_AREA}/preexisting
+mkdir -p "${preexisting}"
+run_install "${preexisting}" safe >/dev/null
+[[ ! -e ${preexisting}/etc/warp-egress-admin-console/.warp-admin-created ]]
+preserve=$(run_uninstall "${preexisting}" safe)
+grep -q '^ADMIN_ACCOUNT_PRESERVED warp-admin$' <<<"${preserve}"
+grep -qx 'ADMIN_UNINSTALL_OK' <<<"$(tail -n 1 <<<"${preserve}")"
+
+actions=$(find "${TEST_AREA}" -name test-actions.log -type f -exec cat {} + 2>/dev/null || true)
+if grep -Eq 'warp-dashboard|warp-web|ip rule|ip route|nft |wg-quick|sysctl|health-run|routing-repair' <<<"${actions}"; then
+  echo 'Admin deployment touched a forbidden Dashboard or dataplane surface.' >&2
+  exit 1
+fi
+
+[[ $(sha256sum "${ROOT}/VERSION" | awk '{print $1}') == "${version_before}" ]]
+[[ $(find "${ROOT}/web/dashboard" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}') == "${dashboard_before}" ]]
+[[ $(find "${ROOT}/native" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}') == "${native_before}" ]]
+
+echo 'Admin Console deployment tests passed.'

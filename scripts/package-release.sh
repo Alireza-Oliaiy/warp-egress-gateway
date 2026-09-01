@@ -47,7 +47,9 @@ rm -rf "${STAGE}/${NAME}/.github" "${STAGE}/${NAME}/docs/superpowers"
 # non-executable and independent of the packager's umask.
 chmod 0755 \
   "${STAGE}/${NAME}/web/dashboard/deploy/install.sh" \
-  "${STAGE}/${NAME}/web/dashboard/deploy/uninstall.sh"
+  "${STAGE}/${NAME}/web/dashboard/deploy/uninstall.sh" \
+  "${STAGE}/${NAME}/admin/deploy/install.sh" \
+  "${STAGE}/${NAME}/admin/deploy/uninstall.sh"
 chmod 0644 \
   "${STAGE}/${NAME}/web/__init__.py" \
   "${STAGE}/${NAME}/web/dashboard/__init__.py" \
@@ -60,7 +62,17 @@ chmod 0644 \
   "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard.service" \
   "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard-collector.service" \
   "${STAGE}/${NAME}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer" \
-  "${STAGE}/${NAME}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf"
+  "${STAGE}/${NAME}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf" \
+  "${STAGE}/${NAME}/admin/__init__.py" \
+  "${STAGE}/${NAME}/admin/application.py" \
+  "${STAGE}/${NAME}/admin/helper.py" \
+  "${STAGE}/${NAME}/admin/protocol.py" \
+  "${STAGE}/${NAME}/admin/static/index.html" \
+  "${STAGE}/${NAME}/admin/static/admin.css" \
+  "${STAGE}/${NAME}/admin/static/admin.js" \
+  "${STAGE}/${NAME}/admin/deploy/systemd/warp-admin.service"
+chmod 0440 \
+  "${STAGE}/${NAME}/admin/deploy/sudoers/warp-egress-gateway-admin"
 
 # Runtime state/generated content is intentionally excluded, but the tracked
 # placeholders must remain in release archives so a release payload can replace
@@ -99,7 +111,8 @@ with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED) as arch
             info = zipfile.ZipInfo(relative, time.localtime(path.stat().st_mtime)[:6])
             info.create_system = 3
             is_executable = path.suffix == '.sh' or path.name == 'warp-gateway'
-            permissions = 0o755 if is_executable else 0o644
+            is_sudoers = relative.endswith('/admin/deploy/sudoers/warp-egress-gateway-admin')
+            permissions = 0o755 if is_executable else 0o440 if is_sudoers else 0o644
             info.external_attr = (stat.S_IFREG | permissions) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, path.read_bytes())

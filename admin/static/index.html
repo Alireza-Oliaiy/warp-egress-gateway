@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="csrf-token" content="{{CSRF_TOKEN}}">
+  <title>WARP Admin Console</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body data-state="loading">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">SSH tunnel · read-only</p>
+      <h1>Admin Console</h1>
+    </div>
+    <div class="service-state"><span class="dot" aria-hidden="true"></span><span>Admin service connected</span></div>
+  </header>
+
+  <main>
+    <section class="hero panel" aria-labelledby="gateway-state-heading">
+      <div>
+        <p class="eyebrow">Gateway state</p>
+        <h2 id="gateway-state-heading"><span id="overall-state" class="badge neutral">LOADING</span></h2>
+        <p id="result-message" role="status" aria-live="polite">Loading a coherent read-only observation…</p>
+      </div>
+      <dl>
+        <div><dt>Version</dt><dd id="version">—</dd></div>
+        <div><dt>Last status refresh</dt><dd id="last-refresh">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="grid" aria-label="Gateway evidence">
+      <article class="panel"><p>WARP</p><strong id="warp" class="badge neutral">UNKNOWN</strong></article>
+      <article class="panel"><p>WireGuard</p><strong id="wireguard" class="badge neutral">UNKNOWN</strong></article>
+      <article class="panel"><p>Routing</p><strong id="routing" class="badge neutral">UNKNOWN</strong></article>
+      <article class="panel"><p>Kill switch</p><strong id="kill-switch" class="badge neutral">UNKNOWN</strong></article>
+      <article class="panel"><p>IPv4 forwarding</p><strong id="forwarding" class="badge neutral">UNKNOWN</strong></article>
+      <article class="panel"><p>Monitoring</p><strong id="monitoring" class="badge neutral">UNKNOWN</strong></article>
+    </section>
+
+    <section class="panel action-panel" aria-labelledby="actions-heading">
+      <div>
+        <p class="eyebrow">Read-only action</p>
+        <h2 id="actions-heading">Operational health</h2>
+        <p>Runs the official no-recovery evaluator under the shared observation lock.</p>
+      </div>
+      <button id="run-health" type="button">Run Health</button>
+    </section>
+  </main>
+
+  <footer>Accessible only through <code>ssh -L 8788:127.0.0.1:8788</code></footer>
+</body>
+</html>
