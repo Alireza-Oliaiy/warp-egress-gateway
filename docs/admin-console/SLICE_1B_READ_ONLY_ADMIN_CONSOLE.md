@@ -159,7 +159,8 @@ shell, interpreter, systemd/journal, network tool, project script, environment
 preservation, or wildcard command. The packaged and installed policy is
 validated with `visudo -cf`.
 
-The service account starts with no effective or ambient capabilities, a
+The service account must start with zero inheritable, permitted, effective,
+and ambient capabilities, a
 private temporary/device view, strict system/home/kernel/control-group
 protection, memory-write/execute denial, personality/realtime restrictions,
 and only `AF_INET`, `AF_UNIX`, and `AF_NETLINK`. `AF_NETLINK` is required by
@@ -167,11 +168,43 @@ the fixed root evaluator's WireGuard/nftables observations. The service is
 ordered after the early firewall guard and exposes only the existing
 root-owned `/run/warp-egress-gateway` directory as writable inside its strict
 mount namespace; Unix ownership and mode still deny `warp-admin`, while the
-root helper can open the established shared lock. An empty
-`CapabilityBoundingSet`, `NoNewPrivileges=true`, and `PrivateUsers=true` are
-intentionally omitted because they would also constrain or prevent the one
-reviewed setuid sudo transition. The unprivileged service receives no ambient
-capability, and these omissions do not broaden the exact sudoers authority.
+root helper can open the established shared lock.
+
+Capability Evidence Harness V2 conclusively captured a stable CC Python
+MainPID with `CapInh=0000000000200100` (`CAP_SETPCAP`, `CAP_SYS_ADMIN`), while
+`CapPrm`, `CapEff`, and `CapAmb` were zero. This was latent inheritable
+capability exposure, not active application privilege. Qualification stopped
+and the dedicated uninstaller restored the Slice 1A baseline.
+
+The minimal policy is now:
+
+```ini
+CapabilityBoundingSet=~CAP_SETPCAP CAP_SYS_ADMIN
+AmbientCapabilities=
+```
+
+The inverted bounding policy removes only these two capabilities from the
+otherwise available set. In Ubuntu 24.04's systemd 255 execution path, systemd
+temporarily retains them to install seccomp filters without forcing
+`NoNewPrivileges`, then explicitly drops them from inheritable, permitted and
+effective sets when the requested bounding policy excludes them. See the
+[systemd execution implementation](https://github.com/systemd/systemd/blob/v255/src/core/exec-invoke.c)
+and [capability operations](https://github.com/systemd/systemd/blob/v255/src/basic/capability-util.c).
+
+`CapBnd` intentionally remains non-zero; it is not a set of currently held
+application privileges. `CAP_SETUID`/`CAP_SETGID` remain available for ordinary
+setuid-root sudo, as do `CAP_NET_ADMIN`/`CAP_NET_RAW` for the fixed evaluator's
+network observations. Neither excluded capability is needed by the helper's
+status/health operations. The exact zero-argument `NOPASSWD:NOSETENV` sudoers
+boundary is unchanged. An empty bounding set, `NoNewPrivileges=true`, and
+`PrivateUsers=true` remain intentionally absent because they would constrain
+or prevent that transition.
+
+Older systemd versions may implicitly enable `NoNewPrivileges` with seccomp
+hardening; merely omitting the directive is not proof of a working sudo path.
+Local syntax and fixture results do not replace a **fresh full CC host
+qualification**, including real process masks and the sudo/helper path.
+Slice 1B is not yet host-qualified.
 
 ## Audit model
 

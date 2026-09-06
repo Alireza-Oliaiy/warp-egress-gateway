@@ -12,6 +12,27 @@ WARP_GATEWAY_PYTHON3="${PYTHON3_BIN}" bash "${ROOT}/scripts/package-release.sh" 
 [[ -f ${OUT}/${NAME}.tar.gz ]] || { echo "Release TAR was not created." >&2; exit 1; }
 [[ -f ${OUT}/${NAME}.zip ]] || { echo "Release ZIP was not created." >&2; exit 1; }
 [[ -f ${OUT}/${NAME}-SHA256SUMS.txt ]] || { echo "Release checksum file was not created." >&2; exit 1; }
+
+# The installed hardening policy must survive both archive formats byte-for-byte.
+"${PYTHON3_BIN}" - "${ROOT}" "${OUT}" "${NAME}" <<'PY'
+from pathlib import Path
+import sys
+import tarfile
+import zipfile
+
+root, out, name = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+relative = 'admin/deploy/systemd/warp-admin.service'
+expected = (root / relative).read_bytes()
+with tarfile.open(out / f'{name}.tar.gz') as archive:
+    member = archive.getmember(f'{name}/{relative}')
+    assert member.isfile() and member.mode == 0o644
+    assert archive.extractfile(member).read() == expected
+with zipfile.ZipFile(out / f'{name}.zip') as archive:
+    member = archive.getinfo(f'{name}/{relative}')
+    assert (member.external_attr >> 16) & 0o777 == 0o644
+    assert archive.read(member) == expected
+print('Admin unit TAR/ZIP provenance and modes passed.')
+PY
 grep -q 'PACKAGE_PAYLOAD_TESTED' "${ROOT}/tests/package.sh" || {
   echo "Package validation must run the extracted payload suite exactly once." >&2; exit 1;
 }

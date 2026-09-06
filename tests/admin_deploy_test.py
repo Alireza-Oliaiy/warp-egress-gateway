@@ -4,6 +4,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import configparser
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -53,11 +58,58 @@ class AdminDeploymentAssetTests(unittest.TestCase):
             self.assertIn(exact, unit)
         self.assertNotIn("User=root", unit)
         self.assertNotIn("NoNewPrivileges=true", unit)
-        self.assertNotIn("CapabilityBoundingSet=", unit)
         self.assertNotIn("0.0.0.0", unit)
         self.assertNotIn("172.21.31.5", unit)
         self.assertNotIn("warp-dashboard", unit)
         self.assertIn("After=network.target warp-gateway-firewall.service", unit)
+
+    def test_capability_policy_drops_inheritable_setup_caps_and_preserves_sudo(self) -> None:
+        # Parse active directives, not comments/substrings. Duplicate directives
+        # are rejected so a later reset cannot silently undo the restriction.
+        unit = configparser.ConfigParser(interpolation=None, strict=True)
+        unit.optionxform = str
+        unit.read(DEPLOY / "systemd" / "warp-admin.service", encoding="utf-8")
+        service = unit["Service"]
+        policy = service.get("CapabilityBoundingSet", "")
+        self.assertTrue(policy.startswith("~"), "an explicit subtractive bounding policy is required")
+        excluded = set(policy[1:].split())
+        self.assertEqual(excluded, {"CAP_SETPCAP", "CAP_SYS_ADMIN"})
+        for retained in ("CAP_SETUID", "CAP_SETGID", "CAP_NET_ADMIN", "CAP_NET_RAW"):
+            self.assertNotIn(retained, excluded)
+        self.assertEqual(service["AmbientCapabilities"], "")
+        self.assertNotIn("NoNewPrivileges", service)
+        self.assertNotIn("PrivateUsers", service)
+        self.assertNotIn("SecureBits", service)
+        self.assertEqual(service["User"], "warp-admin")
+        self.assertEqual(service["Group"], "warp-admin")
+        self.assertEqual(
+            service["ExecStart"],
+            "/usr/bin/python3 -I /opt/warp-egress-admin-console/app/admin/application.py",
+        )
+
+    def test_systemd_verifies_actual_unit(self) -> None:
+        analyzer = shutil.which("systemd-analyze")
+        if analyzer is None:
+            self.skipTest("systemd-analyze unavailable; unit syntax verification not performed")
+        # Keep the real unit bytes and executable; isolate unrelated host units
+        # and Windows-mounted file permissions from the syntax check.
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / "warp-admin.service"
+            path.write_bytes((DEPLOY / "systemd" / path.name).read_bytes())
+            path.chmod(0o644)
+            for name in ("sysinit", "basic", "shutdown", "network"):
+                (directory / f"{name}.target").write_text(
+                    "[Unit]\nDefaultDependencies=no\n", encoding="ascii",
+                )
+            result = subprocess.run(
+                [analyzer, "verify", str(path)],
+                env={**os.environ, "SYSTEMD_UNIT_PATH": temporary},
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for invalid in ("Unknown", "Failed to parse", "Invalid"):
+            self.assertNotIn(invalid, result.stderr)
 
     def test_deployment_scripts_are_admin_scoped(self) -> None:
         combined = "\n".join(

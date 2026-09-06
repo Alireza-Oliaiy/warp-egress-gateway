@@ -13,10 +13,10 @@ RuntimeDirectory=warp-egress-admin-console
 RuntimeDirectoryMode=0700
 UMask=0077
 
-# NoNewPrivileges, PrivateUsers, and CapabilityBoundingSet are intentionally
-# omitted: this unprivileged process must execute one exact sudoers-authorized
-# setuid helper, whose read-only wg/nft observations need root netlink access.
-# The service user itself receives no effective or ambient capabilities.
+# NoNewPrivileges and PrivateUsers remain omitted for the exact setuid sudo
+# helper. Drop systemd's seccomp-setup capabilities before application exec;
+# retain the helper's UID/GID transitions and read-only root netlink access.
+CapabilityBoundingSet=~CAP_SETPCAP CAP_SYS_ADMIN
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict

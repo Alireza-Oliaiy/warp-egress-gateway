@@ -55,12 +55,14 @@ cmp "${ROOT}/admin/protocol.py" "${rootfs}/usr/local/libexec/warp-egress-gateway
 [[ $(stat -c '%a' "${rootfs}/usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py") == 644 ]]
 [[ $(stat -c '%a' "${rootfs}/etc/sudoers.d/warp-egress-gateway-admin") == 440 ]]
 [[ $(stat -c '%a' "${rootfs}/etc/systemd/system/warp-admin.service") == 644 ]]
+cmp "${DEPLOY}/systemd/warp-admin.service" "${rootfs}/etc/systemd/system/warp-admin.service"
 [[ $(stat -c '%a' "${rootfs}/run/warp-egress-admin-console") == 700 ]]
 [[ -f ${rootfs}/etc/warp-egress-admin-console/.warp-admin-created ]]
 [[ -f ${rootfs}/var/lib/warp-egress-admin-console/test-account ]]
 
 # A safe reinstall is idempotent and creates the project identity once.
 run_install "${rootfs}" absent >/dev/null
+cmp "${DEPLOY}/systemd/warp-admin.service" "${rootfs}/etc/systemd/system/warp-admin.service"
 [[ $(grep -c '^useradd warp-admin$' "${rootfs}/var/lib/warp-egress-admin-console/test-actions.log") == 1 ]]
 
 # Unsafe identity and unsafe existing destination metadata fail before replacement.
