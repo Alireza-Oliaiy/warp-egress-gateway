@@ -9,6 +9,7 @@ TEST_FAIL=""
 TEST_LISTENER_SCENARIO=immediate-exact
 TEST_READINESS_NOW_MS=0
 READINESS_POLL=0
+ADMIN_PROCESS_IDENTITY=""
 PYTHON3_BIN=/usr/bin/python3
 readonly LISTENER_READINESS_TIMEOUT_MS=10000
 readonly LISTENER_READINESS_POLL_SECONDS=0.2
@@ -355,6 +356,36 @@ wait_for_admin_listener() {
   done
 }
 
+verify_admin_process() {
+  [[ ${TEST_MODE} == false ]] || return 0
+  local snapshot key value identity
+  local -A properties=()
+  if ! snapshot=$(/usr/bin/timeout --kill-after=5s 10s /usr/bin/systemctl show \
+      --property=ActiveState,SubState,MainPID,ExecMainStartTimestampMonotonic,NRestarts \
+      warp-admin.service); then
+    die 'GATE_SERVICE cannot inspect the new Admin process'
+  fi
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      ActiveState|SubState|MainPID|ExecMainStartTimestampMonotonic|NRestarts) ;;
+      *) die 'GATE_SERVICE unexpected process metadata' ;;
+    esac
+    [[ ! -v properties[${key}] ]] || die 'GATE_SERVICE duplicate process metadata'
+    properties[${key}]=${value}
+  done <<<"${snapshot}"
+  [[ ${#properties[@]} -eq 5 && ${properties[ActiveState]} == active \
+      && ${properties[SubState]} == running && ${properties[NRestarts]} == 0 \
+      && ${properties[MainPID]} =~ ^[1-9][0-9]{0,9}$ \
+      && ${properties[ExecMainStartTimestampMonotonic]} =~ ^[1-9][0-9]{0,17}$ ]] \
+    || die 'GATE_SERVICE Admin process is missing, not running, or automatically restarting'
+  (( properties[ExecMainStartTimestampMonotonic] >= ADMIN_ACTIVATION_FLOOR_US )) \
+    || die 'GATE_SERVICE Admin process predates the installed application/configuration'
+  identity=${properties[MainPID]}:${properties[ExecMainStartTimestampMonotonic]}
+  [[ -z ${ADMIN_PROCESS_IDENTITY:-} || ${ADMIN_PROCESS_IDENTITY} == "${identity}" ]] \
+    || die 'GATE_SERVICE Admin process changed during readiness validation'
+  ADMIN_PROCESS_IDENTITY=${identity}
+}
+
 # Resolve from existing trusted settings before account creation or installation.
 # Only the explicit isolated test mode substitutes synthetic address evidence.
 if [[ ${TEST_MODE} == true ]]; then
@@ -461,17 +492,29 @@ if [[ ${TEST_MODE} == false ]]; then
 fi
 
 if [[ ${TEST_MODE} == true ]]; then
-  printf 'systemctl daemon-reload\nsystemctl enable --now warp-admin.service\n' >>"${TEST_ACTIONS}"
+  printf 'systemctl daemon-reload\nsystemctl enable warp-admin.service\nsystemctl restart warp-admin.service\n' >>"${TEST_ACTIONS}"
 else
-  /usr/bin/systemctl daemon-reload
-  /usr/bin/systemctl enable --now warp-admin.service
-  /usr/bin/systemctl is-active --quiet warp-admin.service \
-    || die 'GATE_SERVICE warp-admin.service is not active'
-  /usr/bin/systemctl is-enabled --quiet warp-admin.service \
+  # CLOCK_MONOTONIC matches systemd's ExecMainStartTimestampMonotonic. Capture
+  # only after all installed files/configuration and metadata checks complete.
+  ADMIN_ACTIVATION_FLOOR_US=$("${PYTHON3_BIN}" -I -c 'import time; print(time.monotonic_ns() // 1000)')
+  [[ ${ADMIN_ACTIVATION_FLOOR_US} =~ ^[1-9][0-9]{0,17}$ ]] \
+    || die 'GATE_SERVICE activation clock unavailable'
+  readonly ADMIN_ACTIVATION_FLOOR_US
+  /usr/bin/timeout --kill-after=5s 30s /usr/bin/systemctl daemon-reload \
+    || die 'GATE_SERVICE daemon-reload failed or timed out'
+  /usr/bin/timeout --kill-after=5s 30s /usr/bin/systemctl enable warp-admin.service \
+    || die 'GATE_SERVICE Admin enable failed or timed out'
+  # restart also starts an inactive/never-started unit; enable --now would
+  # leave an already-active process using its old application/configuration.
+  /usr/bin/timeout --kill-after=5s 30s /usr/bin/systemctl restart warp-admin.service \
+    || die 'GATE_SERVICE Admin restart failed or timed out'
+  /usr/bin/timeout --kill-after=5s 10s /usr/bin/systemctl is-enabled --quiet warp-admin.service \
     || die 'GATE_SERVICE warp-admin.service is not enabled'
 fi
 
+verify_admin_process
 wait_for_admin_listener
+verify_admin_process
 if [[ ${TEST_MODE} == true ]]; then
   printf 'listener %s AF_INET only\n' "${ADMIN_LISTENER}" >>"${TEST_ACTIONS}"
 fi
@@ -507,5 +550,6 @@ connection.close()
 PY
 fi
 
+verify_admin_process
 log "service_identity=warp-admin listener=${ADMIN_LISTENER} helper=read-only"
 printf 'ADMIN_INSTALL_OK http://%s\n' "${ADMIN_LISTENER}"

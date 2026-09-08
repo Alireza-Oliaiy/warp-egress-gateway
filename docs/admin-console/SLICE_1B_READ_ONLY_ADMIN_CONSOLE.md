@@ -251,6 +251,27 @@ session-bound status smoke test. Conflicting identity, symlink, ownership, or
 mode state fails closed. Reinstallation is deterministic and preserves a safe
 pre-existing identity.
 
+After replacing and validating the application, network configuration, and unit,
+the installer reloads systemd unit definitions, enables `warp-admin.service`, and
+explicitly restarts **only that Admin service**. `restart` also starts an inactive
+or never-started unit. Unlike `enable --now`, it replaces an already-active Python
+process so the new application and management address actually take effect;
+see the [systemctl command semantics](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html).
+Gateway, WireGuard, firewall, Dashboard, networking, and systemd-networkd services
+are not restarted, and no dataplane configuration is changed.
+
+Each activation command has a 30-second timeout (with a five-second forced-exit
+grace); failure or timeout stops the installer without a success marker or retry.
+A timeout of the systemctl client does not cancel a job already submitted to
+systemd, so it is a qualification failure, not proof that Admin stayed stopped.
+Before exact-listener readiness, the installer requires `ActiveState=active`,
+`SubState=running`, a positive `MainPID` with a monotonic start timestamp after
+file installation, and `NRestarts=0`. The same PID/start timestamp and zero
+automatic restarts must persist through listener and HTTP smoke validation.
+The existing exact listener gate still rejects stale loopback, wildcard, transit,
+IPv6, wrong-address, and multiple listeners. This local/CI migration coverage
+does not replace fresh exact-candidate CC in-place host qualification.
+
 The first controlled CC qualification safely stopped when systemd reported the
 service active about one second before the Python process completed its socket
 bind. The root cause was the installer's former single-shot listener assertion.

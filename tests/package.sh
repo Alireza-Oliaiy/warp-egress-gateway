@@ -265,6 +265,11 @@ PY
 )
 
 if [[ ${WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED:-false} != true ]]; then
+  # Exercise the complete isolated installer and stateful active-process
+  # migration from TAR too; ZIP runs these tests through the full suite below.
+  mkdir -p "${OUT}/extracted-tar"
+  tar -xzf "${OUT}/${NAME}.tar.gz" -C "${OUT}/extracted-tar"
+  "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_deploy_test.py"
   extracted="${OUT}/extracted"
   overlay="${OUT}/overlay"
   "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${extracted}" <<'PY'
