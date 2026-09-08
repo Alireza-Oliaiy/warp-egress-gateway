@@ -251,6 +251,48 @@ session-bound status smoke test. Conflicting identity, symlink, ownership, or
 mode state fails closed. Reinstallation is deterministic and preserves a safe
 pre-existing identity.
 
+### Shared runtime prerequisite (fresh installation and reboot)
+
+A fresh HQ installation exposed `226/NAMESPACE` before `ExecStart`: the mandatory
+`ReadWritePaths=/run/warp-egress-gateway` directory did not exist. The lock helper
+can create it only after execution starts, which is too late for systemd's mount
+namespace setup. An already-existing directory had masked this on CC.
+
+The packaged `admin/deploy/tmpfiles/warp-egress-admin-console.conf` is installed
+at `/etc/tmpfiles.d/warp-egress-admin-console.conf` as a regular root:root `0644`
+file, containing exactly:
+
+```text
+d /run/warp-egress-gateway 0700 root root -
+```
+
+Before installation, any existing shared parent must be a non-symlink directory
+with exactly root:root `0700` metadata. Unsafe ownership, group, mode, or type is
+rejected, not repaired by tmpfiles. The installer validates the root-controlled
+packaged rule, installs it, invokes `systemd-tmpfiles --create` for **only that
+fixed configuration**, and revalidates the parent before activating Admin.
+Failure stops installation without an Admin success marker or a restart retry.
+
+At boot, `systemd-tmpfiles-setup.service` recreates this ephemeral directory from
+the rule. The Admin unit explicitly orders itself after that service. Normal
+Ubuntu/systemd boot already pulls tmpfiles into sysinit (and `PrivateTmp=true`
+also implies this ordering), so no new `Wants=` or `Requires=` is necessary.
+See the [systemd v255 tmpfiles setup unit](https://github.com/systemd/systemd/blob/v255/units/systemd-tmpfiles-setup.service)
+and [execution dependency documentation](https://github.com/systemd/systemd/blob/v255/man/systemd.exec.xml).
+The sequence is tmpfiles setup → root-owned shared parent → Admin namespace
+construction → unprivileged Admin process → exact management listener checks.
+If creation fails and the path remains absent, namespace setup still fails
+closed; the writable-path restriction is never made optional or broadened.
+
+The rule neither creates nor removes `admin-mutation.lock`. Existing safe parent
+and lock inodes survive reinstall; the authoritative root:root `0600` lock
+contract remains unchanged. Uninstall removes the Admin-owned tmpfiles rule but
+leaves the shared directory and lock in place for other project components.
+There is no directory cleanup/expiry rule, root-shell service, change to Admin
+ownership/capabilities/sudoers, or gateway/Dashboard restart. Isolated tests use
+real tmpfiles creation and simulate an empty ephemeral parent, not a host reboot;
+local and CI results do not constitute fresh host qualification.
+
 After replacing and validating the application, network configuration, and unit,
 the installer reloads systemd unit definitions, enables `warp-admin.service`, and
 explicitly restarts **only that Admin service**. `restart` also starts an inactive

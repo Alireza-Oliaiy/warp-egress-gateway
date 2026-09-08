@@ -71,7 +71,8 @@ chmod 0644 \
   "${STAGE}/${NAME}/admin/static/index.html" \
   "${STAGE}/${NAME}/admin/static/admin.css" \
   "${STAGE}/${NAME}/admin/static/admin.js" \
-  "${STAGE}/${NAME}/admin/deploy/systemd/warp-admin.service"
+  "${STAGE}/${NAME}/admin/deploy/systemd/warp-admin.service" \
+  "${STAGE}/${NAME}/admin/deploy/tmpfiles/warp-egress-admin-console.conf"
 chmod 0440 \
   "${STAGE}/${NAME}/admin/deploy/sudoers/warp-egress-gateway-admin"
 

@@ -45,6 +45,12 @@ APP_BASE=$(root_path /opt/warp-egress-admin-console)
 APP_ROOT=${APP_BASE}/app
 ADMIN_APP=${APP_ROOT}/admin
 RUNTIME_DIR=$(root_path /run/warp-egress-admin-console)
+SHARED_RUNTIME_DIR=$(root_path /run/warp-egress-gateway)
+TMPFILES_SOURCE=${SCRIPT_DIR}/tmpfiles/warp-egress-admin-console.conf
+TMPFILES_DEST=$(root_path /etc/tmpfiles.d/warp-egress-admin-console.conf)
+RUNTIME_OWNER=0:0
+if [[ ${TEST_MODE} == true ]]; then RUNTIME_OWNER=$(id -u):$(id -g); fi
+readonly RUNTIME_OWNER
 CONFIG_DIR=$(root_path /etc/warp-egress-admin-console)
 ACCOUNT_MARKER=${CONFIG_DIR}/.warp-admin-created
 NETWORK_DEST=${CONFIG_DIR}/network.json
@@ -72,9 +78,30 @@ done
 for source in \
   "${SOURCE_ROOT}/admin/helper.py" \
   "${SCRIPT_DIR}/systemd/warp-admin.service" \
+  "${TMPFILES_SOURCE}" \
   "${SCRIPT_DIR}/sudoers/warp-egress-gateway-admin"; do
   [[ -f ${source} && ! -L ${source} ]] || die "GATE_SOURCE missing or unsafe file: ${source}"
 done
+[[ $(<"${TMPFILES_SOURCE}") == 'd /run/warp-egress-gateway 0700 root root -' ]] \
+  || die 'GATE_SOURCE unexpected shared runtime tmpfiles rule'
+for source in "${SOURCE_ROOT}" "${SOURCE_ROOT}/admin" "${SCRIPT_DIR}" "${SCRIPT_DIR}/tmpfiles" "${TMPFILES_SOURCE}"; do
+  [[ ! -L ${source} ]] || die 'GATE_SOURCE unsafe tmpfiles source path'
+  metadata=$(stat -c '%u:%g:%a' -- "${source}")
+  mode=${metadata##*:}
+  [[ ${metadata%:*} == "${RUNTIME_OWNER}" && $((8#${mode} & 8#22)) -eq 0 ]] \
+    || die 'GATE_SOURCE tmpfiles source is not root-controlled'
+done
+[[ -x /usr/bin/systemd-tmpfiles ]] || die 'GATE_SHARED_RUNTIME systemd-tmpfiles is unavailable'
+
+validate_shared_runtime() {
+  [[ -d ${SHARED_RUNTIME_DIR} && ! -L ${SHARED_RUNTIME_DIR} \
+      && $(stat -c '%u:%g:%a' -- "${SHARED_RUNTIME_DIR}") == "${RUNTIME_OWNER}:700" ]] \
+    || die 'GATE_SHARED_RUNTIME shared runtime parent must be a root-owned 0700 directory'
+}
+# tmpfiles may adjust existing metadata: reject unsafe state BEFORE invoking it.
+if [[ -e ${SHARED_RUNTIME_DIR} || -L ${SHARED_RUNTIME_DIR} ]]; then
+  validate_shared_runtime
+fi
 if ! command -v "${PYTHON3_BIN}" >/dev/null 2>&1 && [[ ! -x ${PYTHON3_BIN} ]]; then
   die "GATE_PYTHON Python 3 is unavailable: ${PYTHON3_BIN}"
 fi
@@ -98,6 +125,8 @@ if [[ -e ${RUNTIME_DIR} || -L ${RUNTIME_DIR} ]]; then
     || die "GATE_DESTINATION unsafe Admin runtime directory: ${RUNTIME_DIR}"
 fi
 for shared_parent in \
+  "$(root_path /run)" \
+  "$(root_path /etc/tmpfiles.d)" \
   "$(root_path /etc/systemd/system)" \
   "$(root_path /etc/sudoers.d)"; do
   if [[ -e ${shared_parent} || -L ${shared_parent} ]]; then
@@ -126,7 +155,7 @@ if [[ -d ${APP_BASE} ]]; then
     fi
   done < <(find "${APP_BASE}" -mindepth 1 -print0)
 fi
-for destination in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}"; do
+for destination in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}" "${TMPFILES_DEST}"; do
   if [[ -e ${destination} || -L ${destination} ]]; then
     [[ -f ${destination} && ! -L ${destination} ]] \
       || die "GATE_DESTINATION unsafe existing file: ${destination}"
@@ -467,6 +496,27 @@ install_file 0440 "${SCRIPT_DIR}/sudoers/warp-egress-gateway-admin" "${SUDOERS_D
   || die 'GATE_SUDOERS installed policy is invalid'
 install_file 0644 "${SCRIPT_DIR}/systemd/warp-admin.service" "${UNIT_DEST}"
 install_directory 0700 "${RUNTIME_DIR}" warp-admin warp-admin
+
+install_file 0644 "${TMPFILES_SOURCE}" "${TMPFILES_DEST}"
+[[ -f ${TMPFILES_DEST} && ! -L ${TMPFILES_DEST} \
+    && $(stat -c '%u:%g:%a' -- "${TMPFILES_DEST}") == "${RUNTIME_OWNER}:644" ]] \
+  || die 'GATE_SHARED_RUNTIME installed tmpfiles metadata is unsafe'
+if [[ -e ${SHARED_RUNTIME_DIR} || -L ${SHARED_RUNTIME_DIR} ]]; then
+  validate_shared_runtime
+fi
+if [[ ${TEST_MODE} == true ]]; then
+  # Real tmpfiles, isolated filesystem only. Map root to the fixture owner for
+  # unprivileged CI; neither installed rule nor production command is changed.
+  sed "s/ root root / ${RUNTIME_OWNER/:/ } /" "${TMPFILES_DEST}" \
+    | /usr/bin/systemd-tmpfiles --root="${ROOT_PREFIX}" --create - \
+    || die 'GATE_SHARED_RUNTIME tmpfiles creation failed'
+else
+  /usr/bin/systemd-tmpfiles --create "${TMPFILES_DEST}" \
+    || die 'GATE_SHARED_RUNTIME tmpfiles creation failed'
+fi
+validate_shared_runtime
+# The rule creates only the parent. Never create, unlink or replace its shared
+# admin-mutation.lock; the authoritative lock implementation owns that lifecycle.
 
 if [[ ${TEST_FAIL} == metadata ]]; then
   die 'GATE_METADATA injected test failure'

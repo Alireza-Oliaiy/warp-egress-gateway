@@ -21,17 +21,18 @@ import tarfile
 import zipfile
 
 root, out, name = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-relative = 'admin/deploy/systemd/warp-admin.service'
-expected = (root / relative).read_bytes()
-with tarfile.open(out / f'{name}.tar.gz') as archive:
-    member = archive.getmember(f'{name}/{relative}')
-    assert member.isfile() and member.mode == 0o644
-    assert archive.extractfile(member).read() == expected
-with zipfile.ZipFile(out / f'{name}.zip') as archive:
-    member = archive.getinfo(f'{name}/{relative}')
-    assert (member.external_attr >> 16) & 0o777 == 0o644
-    assert archive.read(member) == expected
-print('Admin unit TAR/ZIP provenance and modes passed.')
+for relative in ('admin/deploy/systemd/warp-admin.service',
+                 'admin/deploy/tmpfiles/warp-egress-admin-console.conf'):
+    expected = (root / relative).read_bytes()
+    with tarfile.open(out / f'{name}.tar.gz') as archive:
+        member = archive.getmember(f'{name}/{relative}')
+        assert member.isfile() and member.mode == 0o644
+        assert archive.extractfile(member).read() == expected
+    with zipfile.ZipFile(out / f'{name}.zip') as archive:
+        member = archive.getinfo(f'{name}/{relative}')
+        assert (member.external_attr >> 16) & 0o170777 == 0o100644
+        assert archive.read(member) == expected
+print('Admin unit/tmpfiles TAR/ZIP provenance and modes passed.')
 PY
 grep -q 'PACKAGE_PAYLOAD_TESTED' "${ROOT}/tests/package.sh" || {
   echo "Package validation must run the extracted payload suite exactly once." >&2; exit 1;
@@ -66,6 +67,7 @@ for required in \
   admin/static/index.html admin/static/admin.css admin/static/admin.js \
   admin/deploy/install.sh admin/deploy/uninstall.sh \
   admin/deploy/systemd/warp-admin.service \
+  admin/deploy/tmpfiles/warp-egress-admin-console.conf \
   admin/deploy/sudoers/warp-egress-gateway-admin \
   docs/upgrade.md docs/security.md docs/web-console/READ_ONLY_DASHBOARD.md \
   docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md \
@@ -113,7 +115,8 @@ done
 for regular in \
   admin/__init__.py admin/application.py admin/network.py admin/helper.py admin/protocol.py \
   admin/static/index.html admin/static/admin.css admin/static/admin.js \
-  admin/deploy/systemd/warp-admin.service; do
+  admin/deploy/systemd/warp-admin.service \
+  admin/deploy/tmpfiles/warp-egress-admin-console.conf; do
   tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rw-r--r-- .*${NAME}/${regular}$" >/dev/null || {
     echo "Packaged TAR Admin regular-file mode is not 0644: ${regular}" >&2; exit 1;
   }
@@ -166,6 +169,7 @@ required = {
     f'{name}/admin/static/admin.js', f'{name}/admin/deploy/install.sh',
     f'{name}/admin/deploy/uninstall.sh',
     f'{name}/admin/deploy/systemd/warp-admin.service',
+    f'{name}/admin/deploy/tmpfiles/warp-egress-admin-console.conf',
     f'{name}/admin/deploy/sudoers/warp-egress-gateway-admin',
     f'{name}/docker/setup.sh', f'{name}/shared/upgrade/remote-upgrade.sh',
     f'{name}/docs/upgrade.md', f'{name}/docs/security.md',
@@ -249,6 +253,7 @@ expected = {
     f'{name}/admin/static/admin.css': 0o644,
     f'{name}/admin/static/admin.js': 0o644,
     f'{name}/admin/deploy/systemd/warp-admin.service': 0o644,
+    f'{name}/admin/deploy/tmpfiles/warp-egress-admin-console.conf': 0o644,
     f'{name}/admin/deploy/sudoers/warp-egress-gateway-admin': 0o440,
 }
 with zipfile.ZipFile(archive_path) as archive:

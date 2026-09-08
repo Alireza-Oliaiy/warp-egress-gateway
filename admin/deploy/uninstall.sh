@@ -33,19 +33,27 @@ HELPER_DEST=$(root_path /usr/local/libexec/warp-egress-gateway/warp-admin-helper
 PROTOCOL_DEST=$(root_path /usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py)
 UNIT_DEST=$(root_path /etc/systemd/system/warp-admin.service)
 SUDOERS_DEST=$(root_path /etc/sudoers.d/warp-egress-gateway-admin)
+TMPFILES_DIR=$(root_path /etc/tmpfiles.d)
+TMPFILES_DEST=${TMPFILES_DIR}/warp-egress-admin-console.conf
 TEST_STATE_DIR=$(root_path /var/lib/warp-egress-admin-console)
 TEST_ACTIONS=${TEST_STATE_DIR}/test-actions.log
 
-for directory in "${APP_BASE}" "${RUNTIME_DIR}" "${CONFIG_DIR}"; do
+for directory in "${APP_BASE}" "${RUNTIME_DIR}" "${CONFIG_DIR}" "${TMPFILES_DIR}"; do
   if [[ -e ${directory} || -L ${directory} ]]; then
     [[ -d ${directory} && ! -L ${directory} ]] \
       || die "GATE_DESTINATION unsafe Admin directory: ${directory}"
   fi
 done
+if [[ -d ${TMPFILES_DIR} && ${TEST_MODE} == false ]]; then
+  metadata=$(stat -c '%u:%g:%a' -- "${TMPFILES_DIR}")
+  mode=${metadata##*:}
+  [[ ${metadata%:*} == 0:0 && $((8#${mode} & 8#22)) -eq 0 ]] \
+    || die 'GATE_DESTINATION unsafe tmpfiles parent metadata'
+fi
 if [[ -d ${APP_BASE} && -n $(find "${APP_BASE}" -type l -print -quit) ]]; then
   die 'GATE_DESTINATION application tree contains a symlink'
 fi
-for file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}"; do
+for file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}" "${TMPFILES_DEST}"; do
   if [[ -e ${file} || -L ${file} ]]; then
     [[ -f ${file} && ! -L ${file} ]] || die "GATE_DESTINATION unsafe Admin file: ${file}"
     if [[ ${TEST_MODE} == false ]]; then
@@ -96,7 +104,8 @@ else
   /usr/bin/systemctl disable --now warp-admin.service >/dev/null 2>&1 || true
 fi
 
-rm -f -- "${SUDOERS_DEST}" "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${NETWORK_DEST}"
+# Remove only the Admin-owned boot rule, never the shared runtime parent/lock.
+rm -f -- "${SUDOERS_DEST}" "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${NETWORK_DEST}" "${TMPFILES_DEST}"
 rm -rf -- "${APP_BASE}" "${RUNTIME_DIR}"
 
 if [[ ${REMOVE_ACCOUNT} == true ]]; then

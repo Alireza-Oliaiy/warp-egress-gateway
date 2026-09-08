@@ -1,6 +1,6 @@
 [Unit]
 Description=WARP Egress Gateway Admin Console
-After=network.target warp-gateway-firewall.service
+After=network.target warp-gateway-firewall.service systemd-tmpfiles-setup.service
 
 [Service]
 Type=simple
