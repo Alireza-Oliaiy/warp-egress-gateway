@@ -65,6 +65,7 @@ chmod 0644 \
   "${STAGE}/${NAME}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf" \
   "${STAGE}/${NAME}/admin/__init__.py" \
   "${STAGE}/${NAME}/admin/application.py" \
+  "${STAGE}/${NAME}/admin/network.py" \
   "${STAGE}/${NAME}/admin/helper.py" \
   "${STAGE}/${NAME}/admin/protocol.py" \
   "${STAGE}/${NAME}/admin/static/index.html" \

@@ -9,5 +9,5 @@ if ! command -v "${PYTHON3_BIN}" >/dev/null 2>&1 && [[ ! -x ${PYTHON3_BIN} ]]; t
   exit 1
 fi
 
-(cd "${ROOT}" && "${PYTHON3_BIN}" tests/admin_console_test.py)
+(cd "${ROOT}" && "${PYTHON3_BIN}" -B tests/admin_network_test.py && "${PYTHON3_BIN}" -B tests/admin_console_test.py)
 echo "Admin Console tests passed."

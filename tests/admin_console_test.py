@@ -24,10 +24,7 @@ if str(ROOT) not in sys.path:
 from admin.application import (
     AdminError,
     AdminHTTPServer,
-    BIND_ADDRESS,
     BIND_PORT,
-    EXPECTED_HOST,
-    EXPECTED_ORIGIN,
     HELPER_COMMAND,
     RateLimiter,
     SessionStore,
@@ -57,6 +54,9 @@ from admin.protocol import (
 
 
 REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000"
+MANAGEMENT_ADDRESS = "172.21.31.5"
+EXPECTED_HOST = f"{MANAGEMENT_ADDRESS}:8788"
+EXPECTED_ORIGIN = f"http://{EXPECTED_HOST}"
 HEALTHY_LINE = (
     b"EVALUATION=completed HEALTH=OK reason=none wg=up direct=ok direct_rc=0 "
     b"warp=on warp_rc=0 route=ok nft=ok upstream=ok services=ok timers=ok recovery=none\n"
@@ -116,12 +116,14 @@ def running_server(
     sessions: SessionStore | None = None,
     limiter: RateLimiter | None = None,
     audit: FakeAudit | None = None,
+    management_address: str = MANAGEMENT_ADDRESS,
 ):
     actual_helper = helper or FakeHelper()
     actual_sessions = sessions or SessionStore()
     actual_audit = audit or FakeAudit()
     server = AdminHTTPServer(
         ("127.0.0.1", 0),
+        management_address=management_address,
         helper=actual_helper,
         sessions=actual_sessions,
         limiter=limiter or RateLimiter(),
@@ -148,7 +150,7 @@ def request(
 ) -> tuple[int, dict[str, str], bytes]:
     connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
     connection.putrequest(method, target, skip_host=True, skip_accept_encoding=True)
-    for name, value in headers or [("Host", EXPECTED_HOST)]:
+    for name, value in (headers if headers is not None else [("Host", server.expected_host)]):
         connection.putheader(name, value)
     connection.endheaders(body)
     response = connection.getresponse()
@@ -169,8 +171,28 @@ def open_session(server: AdminHTTPServer) -> tuple[str, str]:
 
 
 class FrozenBoundaryTests(unittest.TestCase):
+    def test_runtime_exact_host_and_origin_at_both_sites(self) -> None:
+        for address in (MANAGEMENT_ADDRESS, "172.20.31.5"):
+            with self.subTest(address=address), running_server(management_address=address) as (server, helper, _, _):
+                cookie, csrf = open_session(server)
+                for origin in (f"http://{address}:8788", "http://127.0.0.1:8788",
+                               "http://localhost:8788", "http://172.20.31.6:8788",
+                               f"https://{address}:8788", f"http://{address}:8787", f"http://{address}:8788/"):
+                    status, _, _ = request(
+                        server, "POST", "/api/actions/health",
+                        headers=[("Host", f"{address}:8788"), ("Origin", origin),
+                                 ("Cookie", cookie), ("X-CSRF-Token", csrf),
+                                 ("Content-Type", "application/json"), ("Content-Length", "2")],
+                        body=b"{}",
+                    )
+                    self.assertEqual(status, 200 if origin == f"http://{address}:8788" else 403)
+                for host in ("127.0.0.1:8788", "localhost:8788", "172.20.31.6:8788", "10.1.1.222:8788",
+                             address, f"{address}:8787", "0.0.0.0:8788", "[::1]:8788"):
+                    self.assertEqual(request(server, "GET", "/", headers=[("Host", host)])[0], 403)
+                self.assertEqual(len(helper.calls), 1)
+
     def test_listener_and_helper_authority_are_fixed(self) -> None:
-        self.assertEqual((BIND_ADDRESS, BIND_PORT), ("127.0.0.1", 8788))
+        self.assertEqual(BIND_PORT, 8788)
         self.assertEqual(
             HELPER_COMMAND,
             (
@@ -188,9 +210,19 @@ class FrozenBoundaryTests(unittest.TestCase):
     def test_production_server_has_no_bind_override(self) -> None:
         from admin import application
 
-        with mock.patch.object(application, "AdminHTTPServer") as server_type:
-            application.create_server()
-        self.assertEqual(server_type.call_args.args[0], ("127.0.0.1", 8788))
+        from admin.network import ManagementConfig, NetworkConfigError
+        for address in (MANAGEMENT_ADDRESS, "172.20.31.5"):
+            with mock.patch.object(application, "AdminHTTPServer") as server_type, \
+                    mock.patch.object(application, "load_runtime_config",
+                                      return_value=ManagementConfig(address, "ens160", "ens192")):
+                with mock.patch.dict(os.environ, {"ADMIN_LISTEN": "0.0.0.0", "ADMIN_PORT": "9999"}):
+                    application.create_server()
+                self.assertEqual(server_type.call_args.args[0], (address, 8788))
+                self.assertEqual(server_type.call_args.kwargs["management_address"], address)
+        with mock.patch.object(application, "AdminHTTPServer") as server_type, \
+                mock.patch.object(application, "load_runtime_config", side_effect=NetworkConfigError):
+            self.assertEqual(application.main([]), 78)
+            server_type.assert_not_called()
         self.assertEqual(application.AdminHTTPServer.address_family, socket.AF_INET)
         self.assertEqual(application.main(["--listen", "0.0.0.0"]), 64)
         source = (ROOT / "admin" / "application.py").read_text(encoding="utf-8")
@@ -204,6 +236,9 @@ class FrozenBoundaryTests(unittest.TestCase):
             app.mkdir(parents=True, mode=0o755)
             application_path = app / "application.py"
             protocol_path = app / "protocol.py"
+            network_path = app / "network.py"
+            network_path.write_text("network", encoding="ascii")
+            network_path.chmod(0o644)
             application_path.write_text("application", encoding="ascii")
             protocol_path.write_text("protocol", encoding="ascii")
             application_path.chmod(0o644)
@@ -213,6 +248,7 @@ class FrozenBoundaryTests(unittest.TestCase):
                 validate_installed_application_metadata(
                     application_path,
                     protocol_path,
+                    network_path,
                     required_uid=os.getuid(),
                     required_gid=os.getgid(),
                     parents=parents,
@@ -223,6 +259,7 @@ class FrozenBoundaryTests(unittest.TestCase):
                 validate_installed_application_metadata(
                     application_path,
                     protocol_path,
+                    network_path,
                     required_uid=os.getuid(),
                     required_gid=os.getgid(),
                     parents=parents,
@@ -759,6 +796,9 @@ class UIContractTests(unittest.TestCase):
         script = (ROOT / "admin" / "static" / "admin.js").read_text(encoding="utf-8")
         self.assertIn("Admin Console", html)
         self.assertIn("Run Health", html)
+        self.assertIn("Management network · read-only", html)
+        self.assertNotIn("ssh -L", html)
+        self.assertNotIn("SSH tunnel", html)
         for absent in ("Repair Routing", "Connect WARP", "Disconnect WARP", "terminal", "config editor", "logs console"):
             self.assertNotIn(absent, html)
         for forbidden in ("innerHTML", "eval(", "Function(", "document.write", "http://", "https://"):

@@ -1,6 +1,6 @@
 # v0.6.0 Admin Console Design
 
-**Status:** FROZEN for Phase 0
+**Status:** Phase 0 baseline with approved Slice 1B management-direct access correction
 
 **Authoritative runtime base:** `main` at `2bc026680d32e350a1cf2521523e0e8cf3d8358c`
 
@@ -14,6 +14,13 @@ This document is the authoritative architecture and security contract for the
 v0.6.0 Admin Console. Phase 0 adds no runtime, helper, sudoers, systemd,
 installer, dashboard, dataplane, or version change. A later change to a frozen
 boundary requires an explicit architecture review before implementation.
+
+The approved Slice 1B access correction supersedes the original SSH-only
+assumption. Current implementation remains read-only: only Status and Health
+are active; all mutation routes below are future-slice designs and remain
+404. The direct HTTP model is approved for the trusted management network,
+not for an untrusted network or public exposure. No new authentication,
+TLS, helper operations, sudo authority, or service capabilities are introduced.
 
 ## 1. Product boundary and invariants
 
@@ -40,8 +47,8 @@ The new administrative plane is:
 ```text
 service:         warp-admin.service
 runtime user:    warp-admin
-listener:        127.0.0.1:8788 (IPv4 loopback only)
-remote access:   SSH local port forwarding
+listener:        <management-ip>:8788 (one trusted management IPv4)
+remote access:   direct browser HTTP on the trusted management network
 root boundary:   one fixed, short-lived helper
 ```
 
@@ -68,13 +75,8 @@ Frozen safety invariants are:
 ```text
 Operator browser
     |
-    | HTTP to local 127.0.0.1:8788
-    v
-SSH client local forward
-    |
-    | encrypted and authenticated SSH transport
-    v
-sshd on the gateway -> remote 127.0.0.1:8788
+    | HTTP to <management-ip>:8788
+    | trusted management network (no transport encryption)
     |
     v
 warp-admin.service                         unprivileged: warp-admin
@@ -106,13 +108,14 @@ Trust assumptions and boundaries:
 
 - The browser, all HTTP input, headers, cookies, helper stdin, child-process
   output, and journal text are hostile data.
-- SSH authentication and host verification are the v0.6.0 MVP transport and
-  operator-authentication boundary. Anyone authorized to create the server-side
-  loopback forward can reach the Admin Console and must be treated as an
-  administrator.
-- The Admin Console does not claim to know the individual SSH identity because
-  TCP forwarding does not convey it to the HTTP process. Per-user attribution
-  requires a separately reviewed authentication design.
+- Access is restricted by the existing trusted management network, not by SSH.
+  Every client able to reach the management listener can create a browser
+  binding and invoke the current read-only operations. HTTP has no transport
+  encryption or individual operator authentication; network isolation is
+  required externally and is not created by this installer.
+- Sessions and CSRF are browser-request protections, not operator identity.
+  The service makes no per-user identity claim. Future mutation exposure
+  requires its own review of these access assumptions before activation.
 - `warp-admin` is assumed compromisable. Its maximum privilege remains the
   fixed helper allowlist; it receives no general root or host-inspection
   primitive.
@@ -125,9 +128,9 @@ Trust assumptions and boundaries:
 
 | Identity | Purpose | Frozen permissions |
 |---|---|---|
-| SSH operator | Establish the encrypted local forward | Controlled solely by existing SSH policy; no identity is inferred from HTTP |
+| Management client | Reach the direct HTTP listener | Restricted by existing management-network policy; no individual identity is inferred from HTTP |
 | `warp-web` | Existing v0.5.x read-only Dashboard | No sudo, no helper, no Admin Console groups or writable paths |
-| `warp-admin` | Serve the loopback Admin Console | Locked/no-login service account; no supplementary groups; may execute only the exact helper through sudoers |
+| `warp-admin` | Serve the management-interface Admin Console | Locked/no-login service account; no supplementary groups; may execute only the exact helper through sudoers |
 | `root` | Own helper, configuration, lock, lifecycle operations, and audit boundary | Never used as the web-service identity |
 
 Admin application files and units are root-owned and not writable by
@@ -139,33 +142,41 @@ convenience.
 ## 4. Listener and access model
 
 `warp-admin.service` creates exactly one `AF_INET` listener at
-`127.0.0.1:8788`. The address and port are fixed for the MVP. Startup rejects
-or has no configuration path for:
+`<management-ip>:8788`. The port stays fixed; the address comes from the
+existing root-owned Dashboard `DASHBOARD_LISTEN` setting. The root installer
+cross-checks local assignment using the existing gateway uplink/transit roles.
+It rejects absent, malformed, conflicting, ambiguous or unsafe configuration,
+unassigned addresses, transit, all loopback, wildcard, link-local, multicast,
+hostnames and IPv6. It never binds wildcard and relies on Host filtering.
 
-- `0.0.0.0`, any wildcard, or any additional listener;
-- the management IPv4 address, transit IPv4 address, or another loopback IPv4;
-- IPv6, including `[::1]` and `[::]`;
-- hostnames such as `localhost`;
-- environment, command-line, proxy-header, or configuration overrides that
-  could change the bind target.
+Fixed inputs are `/etc/warp-egress-dashboard/dashboard.env` and
+`/etc/warp-egress-gateway/warp-gateway.env`. The installer does not source
+shell configuration or copy other gateway settings. A root-owned, service-readable
+0644 `/etc/warp-egress-admin-console/network.json` projection contains only
+the selected IPv4 and trusted uplink/transit roles. The unprivileged service
+checks its metadata, current Dashboard-address agreement, and local address
+membership again at startup. Configuration and directory reads reject symlinks
+and group/other-writable or non-root ownership. No caller/environment/HTTP
+input or DNS lookup selects the bind address. The projection is generated
+from the authoritative inputs, never an independent address setting.
+Trusted address/role changes require the reviewed Admin reinstall procedure.
 
-Default remote access is:
+The direct URLs are:
 
-```bash
-ssh -o ExitOnForwardFailure=yes -L 8788:127.0.0.1:8788 cc-warp
-```
+- Dashboard: `http://<management-ip>:8787` (unchanged).
+- Admin: `http://<management-ip>:8788`.
+- CC example: `http://172.21.31.5:8788`.
+- HQ example: `http://172.20.31.5:8788` with site configuration, no code edit.
 
-The operator opens:
-
-```text
-http://127.0.0.1:8788
-```
-
-HTTP is acceptable only because the browser-to-server path is local loopback
-plus the authenticated encrypted SSH tunnel. The MVP does not introduce TLS
-PKI, a reverse proxy, LDAP, OIDC, a user database, an external authentication
-service, management-interface binding, or a plaintext non-loopback listener.
-There is no direct-network fallback if SSH forwarding is unavailable.
+SSH tunneling is not required or the product access model. HTTP traffic and
+browser bindings can be observed or altered by an on-path attacker; the
+existing network must restrict reachability to trusted management clients.
+Binding to one address is not a source-network ACL. This change adds no ACL,
+TLS, reverse proxy, certificate system, identity provider, or user database.
+The readiness gate requires the selected listener to be the only listener
+on port 8788; loopback, transit, wildcard, IPv6, wrong-address or duplicate
+listeners fail immediately. Listener absence alone has the existing bounded
+monotonic readiness retry.
 
 ## 5. HTTP contract
 
@@ -222,8 +233,8 @@ another action.
   `Access-Control-Allow-Origin` or `Access-Control-Allow-Credentials` header and
   does not implement a cross-origin preflight success path.
 - Requests are rate limited by the in-memory browser binding and by one global
-  service budget, not by source IP because every SSH-forwarded connection
-  appears to originate from loopback. The maximums are 60 status requests,
+  service budget, not by source IP. This retains the existing bounded
+  policy independently of the client's network address. The maximums are 60 status requests,
   six health requests, and three mutation requests per binding per minute,
   with global ceilings twice those values. Excess returns `429` and never
   invokes the helper.
@@ -241,23 +252,23 @@ The UI and API report at least these service states:
 
 ## 6. CSRF and browser-request security
 
-SSH access does not prevent a malicious web page from targeting a loopback
-listener, so CSRF protections are mandatory.
+A trusted management network does not prevent a malicious web page from
+targeting its HTTP listener, so CSRF protections remain mandatory.
 
-1. Every request requires the exact `Host` value `127.0.0.1:8788`. Absolute-form
+1. Every request requires the exact `Host` value `<management-ip>:8788`. Absolute-form
    targets, forwarded-host headers, `localhost`, alternate ports, duplicate
    Host headers, and missing/ambiguous Host values fail closed.
 2. `GET /` creates or rotates an in-memory browser binding using at least 256
    bits of CSPRNG entropy. The opaque host-only cookie is `HttpOnly`,
    `SameSite=Strict`, `Path=/`, has no `Domain`, and contains no authentication
-   claim. It is not an alternative to SSH authentication. Because the MVP is
-   deliberately HTTP-over-SSH, it does not use a misleading `Secure` cookie
+   claim. It does not authenticate an operator. Because this slice is
+   deliberately HTTP, it does not use a misleading `Secure` cookie
    contract that browsers cannot enforce on this URL.
 3. The page receives a separate session-bound CSRF token with at least 256 bits
    of entropy. POST requires the binding cookie and the exact token in
    `X-CSRF-Token` using a constant-time comparison.
 4. POST additionally requires the exact
-   `Origin: http://127.0.0.1:8788`. Missing, `null`, multiple, malformed, or
+   `Origin: http://<management-ip>:8788`. Missing, `null`, multiple, malformed, or
    different Origin values are rejected; Referer is not an Origin fallback.
 5. Session/CSRF records are memory-only, expire after bounded inactivity and an
    absolute lifetime, rotate on service restart, and are never logged.
@@ -493,8 +504,8 @@ Each state transition records:
 - stable sanitized result/reason code;
 - `changed` and bounded before/after state categories for mutations.
 
-The HTTP process cannot truthfully attribute the request to an individual SSH
-user, so it must not fabricate one. Audit strings are length bounded, escaped,
+The HTTP process cannot truthfully attribute the request to an individual
+operator, so it must not fabricate one. Audit strings are length bounded, escaped,
 and treated as data. Journald records never contain private/preshared keys,
 WireGuard profiles, `wgcf` account material, cookies, CSRF/session secrets,
 authorization headers, environment dumps, arbitrary configuration, raw child
@@ -545,7 +556,7 @@ Implementation is test-first and strictly sequential:
 
 ### Slice 1 — skeleton, CSRF, and read-only health
 
-- Separate `warp-admin` application/service identity and fixed loopback
+- Separate `warp-admin` application/service identity and exact management-interface
   listener.
 - Exact HTTP/Host/Origin/CSRF/body contracts.
 - Fixed UI shell, passive status, and Run Health only.
@@ -586,8 +597,8 @@ copy historical code blindly.
 
 Required future coverage includes:
 
-- exact listener family/address/port and rejection of wildcard, management,
-  transit, hostname, alternate-loopback, and IPv6 binds;
+- exact listener family/address/port and rejection of wildcard, wrong-management,
+  transit, hostname, all loopback, and IPv6 binds;
 - strict Host, Origin, CSRF, cookie binding, method, content-type, body-size,
   duplicate-key, unknown-field, query-string, and CORS rejection;
 - `warp-web` has no sudo/helper permission and cannot read/write Admin paths;
@@ -641,9 +652,8 @@ enable the service. It must not restart/reinstall the Dashboard or modify
 `warp-web`. Slice-specific native changes are installed only by the normal
 versioned gateway upgrade/rollback mechanism after package tests.
 
-Remote use is documented only through the SSH forward. There is no automatic
-firewall opening, management-network listener, proxy, certificate, or external
-identity integration.
+Remote use is direct HTTP on the selected management address. There is no
+automatic firewall opening, proxy, certificate, or external identity integration.
 
 ## 17. Rollback strategy
 
@@ -691,9 +701,10 @@ It must not be merged, rebased onto this branch, or cherry-picked wholesale.
   were built on an older runtime and are absent from authoritative v0.5.1.
   Importing them would overwrite current boot ordering, recovery, upgrade, and
   dashboard-qualified behavior.
-- The old application-authentication, user database, TLS, management-interface
-  bind, log APIs, Viewer/Admin role model, and broader verb set conflict with
-  the SSH-authenticated, fixed-loopback, four-action MVP.
+- The old application-authentication, user database, TLS, log APIs,
+  Viewer/Admin role model, and broader verb set conflict with this scoped
+  design. Management-direct access is now approved but uses the current
+  trusted Dashboard/gateway configuration, not historical wiring.
 - Historical `health-run` allowed recovery/mutation; v0.6.0 Run Health is
   explicitly read-only.
 - The old initial design omitted the new Connect action and used different API
@@ -703,7 +714,7 @@ It must not be merged, rebased onto this branch, or cherry-picked wholesale.
 
 - Old helper, sudoers, adapters, installers, or privileged `warp-web` wiring.
 - Historical native/runtime-state scripts or changes as a bulk patch.
-- Old authentication/session database, TLS/reverse-proxy, management-binding,
+- Old authentication/session database, TLS/reverse-proxy,
   logs, arbitrary historical API, or role implementation.
 - Any caller-controlled path/unit/interface/command/environment pattern, raw
   stdout/stderr response, or exact human-readable route-string assertion.
@@ -726,7 +737,7 @@ implementation or fixtures without re-deriving them against the current base.
 The v0.6.0 MVP does not provide:
 
 - any change to the v0.5.x Dashboard, `warp-web`, or `172.21.31.5:8787`;
-- a wildcard, management, transit, hostname, IPv6, public, or direct-network
+- a wildcard, transit, hostname, IPv6, public-network, or second
   Admin listener;
 - TLS PKI, reverse proxy, LDAP, OIDC, external authentication, local user
   database, role administration, or password management;

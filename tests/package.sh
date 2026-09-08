@@ -62,7 +62,7 @@ for required in \
   web/dashboard/deploy/systemd/warp-dashboard-collector.service \
   web/dashboard/deploy/systemd/warp-dashboard-collector.timer \
   web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf \
-  admin/__init__.py admin/application.py admin/helper.py admin/protocol.py \
+  admin/__init__.py admin/application.py admin/network.py admin/helper.py admin/protocol.py \
   admin/static/index.html admin/static/admin.css admin/static/admin.js \
   admin/deploy/install.sh admin/deploy/uninstall.sh \
   admin/deploy/systemd/warp-admin.service \
@@ -72,7 +72,7 @@ for required in \
   docs/admin-console/SLICE_1B_READ_ONLY_ADMIN_CONSOLE.md \
   tests/dashboard.sh tests/dashboard_test.py tests/dashboard_ui_test.js \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
-  tests/admin-console.sh tests/admin_console_test.py tests/admin-sudoers.sh \
+  tests/admin-console.sh tests/admin_console_test.py tests/admin_network_test.py tests/admin_network_fixture.py tests/admin-sudoers.sh \
   tests/admin-deploy.sh tests/admin_deploy_test.py \
   tests/health-lock.sh tests/health-readonly.sh tests/observation-locking.sh \
   tests/writer-locking.sh \
@@ -111,7 +111,7 @@ for regular in \
   }
 done
 for regular in \
-  admin/__init__.py admin/application.py admin/helper.py admin/protocol.py \
+  admin/__init__.py admin/application.py admin/network.py admin/helper.py admin/protocol.py \
   admin/static/index.html admin/static/admin.css admin/static/admin.js \
   admin/deploy/systemd/warp-admin.service; do
   tar -tvzf "${OUT}/${NAME}.tar.gz" | grep -E "^-rw-r--r-- .*${NAME}/${regular}$" >/dev/null || {
@@ -160,7 +160,7 @@ required = {
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.service',
     f'{name}/web/dashboard/deploy/systemd/warp-dashboard-collector.timer',
     f'{name}/web/dashboard/deploy/tmpfiles/warp-egress-dashboard.conf',
-    f'{name}/admin/__init__.py', f'{name}/admin/application.py',
+    f'{name}/admin/__init__.py', f'{name}/admin/application.py', f'{name}/admin/network.py',
     f'{name}/admin/helper.py', f'{name}/admin/protocol.py',
     f'{name}/admin/static/index.html', f'{name}/admin/static/admin.css',
     f'{name}/admin/static/admin.js', f'{name}/admin/deploy/install.sh',
@@ -176,6 +176,7 @@ required = {
     f'{name}/tests/dashboard_ui_test.js', f'{name}/tests/dashboard-deploy.sh',
     f'{name}/tests/dashboard_deploy_test.py', f'{name}/tests/syntax.sh',
     f'{name}/tests/admin-console.sh', f'{name}/tests/admin_console_test.py',
+    f'{name}/tests/admin_network_test.py', f'{name}/tests/admin_network_fixture.py',
     f'{name}/tests/admin-sudoers.sh', f'{name}/tests/admin-deploy.sh',
     f'{name}/tests/admin_deploy_test.py',
     f'{name}/tests/health-lock.sh', f'{name}/tests/health-readonly.sh',
@@ -241,6 +242,7 @@ expected = {
     f'{name}/admin/deploy/uninstall.sh': 0o755,
     f'{name}/admin/__init__.py': 0o644,
     f'{name}/admin/application.py': 0o644,
+    f'{name}/admin/network.py': 0o644,
     f'{name}/admin/helper.py': 0o644,
     f'{name}/admin/protocol.py': 0o644,
     f'{name}/admin/static/index.html': 0o644,

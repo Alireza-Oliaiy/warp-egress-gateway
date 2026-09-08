@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Loopback-only, SSH-forwarded read-only Admin Console."""
+"""Management-interface read-only Admin Console."""
 
 from __future__ import annotations
 
@@ -27,11 +27,13 @@ import uuid
 INSTALLED_APP_DIR = Path("/opt/warp-egress-admin-console/app/admin")
 INSTALLED_APPLICATION = INSTALLED_APP_DIR / "application.py"
 INSTALLED_PROTOCOL = INSTALLED_APP_DIR / "protocol.py"
+INSTALLED_NETWORK = INSTALLED_APP_DIR / "network.py"
 
 
 def validate_installed_application_metadata(
     application_path: Path = INSTALLED_APPLICATION,
     protocol_path: Path = INSTALLED_PROTOCOL,
+    network_path: Path = INSTALLED_NETWORK,
     *,
     required_uid: int = 0,
     required_gid: int = 0,
@@ -40,7 +42,7 @@ def validate_installed_application_metadata(
     """Validate the fixed isolated import chain before loading project code."""
 
     try:
-        for path in (application_path, protocol_path):
+        for path in (application_path, protocol_path, network_path):
             metadata = path.lstat()
             if (
                 not stat.S_ISREG(metadata.st_mode)
@@ -96,10 +98,10 @@ except ImportError:  # pragma: no cover - exercised by installed-script fixtures
     )
 
 
-BIND_ADDRESS = "127.0.0.1"
-BIND_PORT = 8788
-EXPECTED_HOST = "127.0.0.1:8788"
-EXPECTED_ORIGIN = "http://127.0.0.1:8788"
+try:
+    from .network import PORT as BIND_PORT, NetworkConfigError, load_runtime_config, management_ipv4
+except ImportError:  # pragma: no cover - installed isolated entry point
+    from network import PORT as BIND_PORT, NetworkConfigError, load_runtime_config, management_ipv4
 HELPER_COMMAND = (
     "/usr/bin/sudo",
     "-n",
@@ -465,9 +467,9 @@ def _valid_target(target: str) -> tuple[str, bool]:
     return parsed.path, True
 
 
-def _valid_host(headers: object) -> bool:
+def _valid_host(headers: object, expected_host: str) -> bool:
     hosts = headers.get_all("Host", [])  # type: ignore[attr-defined]
-    if hosts != [EXPECTED_HOST]:
+    if hosts != [expected_host]:
         return False
     for name in ("Forwarded", "X-Forwarded-Host"):
         if headers.get_all(name, []):  # type: ignore[attr-defined]
@@ -510,6 +512,7 @@ class AdminHTTPServer(ThreadingHTTPServer):
         self,
         server_address: tuple[str, int],
         *,
+        management_address: str,
         helper: HelperClient,
         sessions: SessionStore,
         limiter: RateLimiter,
@@ -521,6 +524,8 @@ class AdminHTTPServer(ThreadingHTTPServer):
         self.limiter = limiter
         self.static_directory = static_directory
         self.audit = audit
+        self.expected_host = f"{management_ipv4(management_address)}:{BIND_PORT}"
+        self.expected_origin = f"http://{self.expected_host}"
         super().__init__(server_address, AdminHandler)
 
 
@@ -560,7 +565,7 @@ class AdminHandler(BaseHTTPRequestHandler):
         self._write(status, "application/json; charset=utf-8", payload)
 
     def _preflight(self) -> str | None:
-        if not _valid_host(self.headers):
+        if not _valid_host(self.headers, self.server.expected_host):
             self._json_error(403, "request_boundary_rejected")
             return None
         path, valid = _valid_target(self.path)
@@ -687,7 +692,7 @@ class AdminHandler(BaseHTTPRequestHandler):
         origins = self.headers.get_all("Origin", [])
         csrf_values = self.headers.get_all("X-CSRF-Token", [])
         binding = _cookie_binding(self.headers)
-        if origins != [EXPECTED_ORIGIN] or len(csrf_values) != 1 or binding is None:
+        if origins != [self.server.expected_origin] or len(csrf_values) != 1 or binding is None:
             self._json_error(403, "request_boundary_rejected")
             return
         if not self.server.sessions.validate(binding, csrf=csrf_values[0]):  # type: ignore[attr-defined]
@@ -720,8 +725,10 @@ class AdminHandler(BaseHTTPRequestHandler):
 def create_server() -> AdminHTTPServer:
     """Create the production listener; no caller or environment can override it."""
 
+    config = load_runtime_config()
     return AdminHTTPServer(
-        (BIND_ADDRESS, BIND_PORT),
+        (config.address, BIND_PORT),
+        management_address=config.address,
         helper=SudoHelperClient(),
         sessions=SessionStore(),
         limiter=RateLimiter(),
@@ -734,8 +741,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments:
         return 64
-    server = create_server()
-    print(f"WARP Admin Console listening on http://{BIND_ADDRESS}:{BIND_PORT}", flush=True)
+    try:
+        server = create_server()
+    except (NetworkConfigError, OSError):
+        print("ADMIN_NETWORK_INVALID: trusted management listener unavailable", file=sys.stderr)
+        return 78
+    print(f"WARP Admin Console listening on {server.expected_origin}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -10,7 +10,6 @@ TEST_LISTENER_SCENARIO=immediate-exact
 TEST_READINESS_NOW_MS=0
 READINESS_POLL=0
 PYTHON3_BIN=/usr/bin/python3
-readonly ADMIN_LISTENER='127.0.0.1:8788'
 readonly LISTENER_READINESS_TIMEOUT_MS=10000
 readonly LISTENER_READINESS_POLL_SECONDS=0.2
 
@@ -30,7 +29,7 @@ if [[ ${WARP_ADMIN_TEST_MODE:-0} == 1 ]]; then
   [[ -z ${TEST_FAIL} || ${TEST_FAIL} =~ ^(sudoers|metadata|listener|http)$ ]] \
     || die 'GATE_TEST_FAILURE unknown injected failure'
   TEST_LISTENER_SCENARIO=${WARP_ADMIN_TEST_LISTENER_SCENARIO:-immediate-exact}
-  [[ ${TEST_LISTENER_SCENARIO} =~ ^(immediate-exact|delayed-exact|after-deadline-exact|never|service-failed|service-inactive|service-deactivating|forbidden-wildcard|forbidden-management|forbidden-transit|forbidden-loopback-alt|forbidden-ipv6-loopback|forbidden-ipv6-any|multiple)$ ]] \
+  [[ ${TEST_LISTENER_SCENARIO} =~ ^(immediate-exact|delayed-exact|after-deadline-exact|never|service-failed|service-inactive|service-deactivating|forbidden-wildcard|forbidden-management|forbidden-transit|forbidden-loopback|forbidden-loopback-alt|forbidden-ipv6-loopback|forbidden-ipv6-any|multiple)$ ]] \
     || die 'GATE_TEST_LISTENER unknown readiness scenario'
   PYTHON3_BIN=${WARP_GATEWAY_PYTHON3:-python3}
 elif [[ -n ${WARP_ADMIN_TEST_ROOT:-} || -n ${WARP_ADMIN_TEST_LISTENER_SCENARIO:-} ]]; then
@@ -47,6 +46,7 @@ ADMIN_APP=${APP_ROOT}/admin
 RUNTIME_DIR=$(root_path /run/warp-egress-admin-console)
 CONFIG_DIR=$(root_path /etc/warp-egress-admin-console)
 ACCOUNT_MARKER=${CONFIG_DIR}/.warp-admin-created
+NETWORK_DEST=${CONFIG_DIR}/network.json
 LIBEXEC_DIR=$(root_path /usr/local/libexec/warp-egress-gateway)
 HELPER_DEST=${LIBEXEC_DIR}/warp-admin-helper
 PROTOCOL_DEST=${LIBEXEC_DIR}/warp_admin_protocol.py
@@ -58,6 +58,7 @@ TEST_ACTIONS=${TEST_STATE_DIR}/test-actions.log
 app_files=(
   __init__.py
   application.py
+  network.py
   protocol.py
   static/index.html
   static/admin.css
@@ -124,7 +125,7 @@ if [[ -d ${APP_BASE} ]]; then
     fi
   done < <(find "${APP_BASE}" -mindepth 1 -print0)
 fi
-for destination in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}"; do
+for destination in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}"; do
   if [[ -e ${destination} || -L ${destination} ]]; then
     [[ -f ${destination} && ! -L ${destination} ]] \
       || die "GATE_DESTINATION unsafe existing file: ${destination}"
@@ -277,6 +278,7 @@ admin_listener_snapshot() {
       forbidden-wildcard) printf '0.0.0.0:8788\n' ;;
       forbidden-management) printf '172.21.31.5:8788\n' ;;
       forbidden-transit) printf '10.1.1.222:8788\n' ;;
+      forbidden-loopback) printf '127.0.0.1:8788\n' ;;
       forbidden-loopback-alt) printf '127.0.0.2:8788\n' ;;
       forbidden-ipv6-loopback) printf '[::1]:8788\n' ;;
       forbidden-ipv6-any) printf '[::]:8788\n' ;;
@@ -353,6 +355,36 @@ wait_for_admin_listener() {
   done
 }
 
+# Resolve from existing trusted settings before account creation or installation.
+# Only the explicit isolated test mode substitutes synthetic address evidence.
+if [[ ${TEST_MODE} == true ]]; then
+  if ! NETWORK_JSON=$("${PYTHON3_BIN}" -B - "${SOURCE_ROOT}" "${ROOT_PREFIX}" <<'PY'
+from pathlib import Path
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from admin.network import resolve_install, NetworkConfigError
+root = Path(sys.argv[2])
+try:
+    observed = json.loads((root / "network-addresses.json").read_text())
+    config = resolve_install(root=root, observe=lambda name: observed[name],
+                             required_uid=os.getuid(), required_gid=os.getgid())
+    print(config.serialize(), end="")
+except (OSError, ValueError, KeyError, NetworkConfigError):
+    raise SystemExit(78)
+PY
+  ); then
+    die 'GATE_NETWORK trusted management configuration is invalid'
+  fi
+else
+  if ! NETWORK_JSON=$("${PYTHON3_BIN}" -I "${SOURCE_ROOT}/admin/network.py" --resolve); then
+    die 'GATE_NETWORK trusted management configuration is invalid'
+  fi
+fi
+ADMIN_ADDRESS=$(printf '%s' "${NETWORK_JSON}" | "${PYTHON3_BIN}" -c \
+  'import json,sys; print(json.load(sys.stdin)["address"])')
+readonly ADMIN_ADDRESS
+readonly ADMIN_LISTENER="${ADMIN_ADDRESS}:8788"
+
 if [[ ${TEST_MODE} == true ]]; then
   install_directory 0755 "${TEST_STATE_DIR}"
   : >>"${TEST_ACTIONS}"
@@ -372,6 +404,13 @@ if [[ ${ACCOUNT_CREATE:-false} == true ]]; then
 fi
 
 install_directory 0755 "${CONFIG_DIR}"
+# Non-secret projection: root-owned, service-readable, atomic fixed-directory replacement.
+network_temp=$(mktemp "${CONFIG_DIR}/.network.XXXXXXXX")
+trap 'rm -f -- "${network_temp}"' EXIT
+printf '%s\n' "${NETWORK_JSON}" >"${network_temp}"
+chmod 0644 "${network_temp}"
+if [[ ${TEST_MODE} == false ]]; then chown root:root "${network_temp}"; fi
+mv -f -- "${network_temp}" "${NETWORK_DEST}"
 if [[ ${ACCOUNT_CREATE:-false} == true ]]; then
   marker_temp=${ACCOUNT_MARKER}.tmp.$$
   printf 'warp-admin\n' >"${marker_temp}"
@@ -403,6 +442,7 @@ if [[ ${TEST_FAIL} == metadata ]]; then
 fi
 [[ $(stat -c '%a' -- "${HELPER_DEST}") == 755 \
     && $(stat -c '%a' -- "${PROTOCOL_DEST}") == 644 \
+    && $(stat -c '%a' -- "${NETWORK_DEST}") == 644 \
     && $(stat -c '%a' -- "${SUDOERS_DEST}") == 440 \
     && $(stat -c '%a' -- "${UNIT_DEST}") == 644 \
     && $(stat -c '%a' -- "${RUNTIME_DIR}") == 700 ]] \
@@ -412,7 +452,7 @@ if [[ ${TEST_MODE} == false ]]; then
     [[ $(stat -c '%u:%g:%a' -- "${ADMIN_APP}/${relative}") == 0:0:644 ]] \
       || die "GATE_METADATA application file metadata is unsafe: ${relative}"
   done
-  for root_file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${SUDOERS_DEST}" "${UNIT_DEST}"; do
+  for root_file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${SUDOERS_DEST}" "${UNIT_DEST}" "${NETWORK_DEST}"; do
     [[ $(stat -c '%u:%g' -- "${root_file}") == 0:0 ]] \
       || die "GATE_METADATA installed file is not root-owned: ${root_file}"
   done
@@ -442,12 +482,15 @@ fi
 if [[ ${TEST_MODE} == true ]]; then
   printf 'http GET / then GET /api/status\n' >>"${TEST_ACTIONS}"
 else
-  "${PYTHON3_BIN}" - <<'PY' || die 'GATE_HTTP Admin HTTP smoke test failed'
+  "${PYTHON3_BIN}" - "${ADMIN_ADDRESS}" <<'PY' || die 'GATE_HTTP Admin HTTP smoke test failed'
 import http.client
 import re
+import sys
 
-connection = http.client.HTTPConnection("127.0.0.1", 8788, timeout=60)
-connection.request("GET", "/", headers={"Host": "127.0.0.1:8788"})
+address = sys.argv[1]
+host = f"{address}:8788"
+connection = http.client.HTTPConnection(address, 8788, timeout=60)
+connection.request("GET", "/", headers={"Host": host})
 response = connection.getresponse()
 body = response.read()
 if response.status != 200:
@@ -455,7 +498,7 @@ if response.status != 200:
 cookie = response.getheader("Set-Cookie", "").split(";", 1)[0]
 if not re.fullmatch(r"warp_admin_session=[A-Za-z0-9_-]{43}", cookie):
     raise SystemExit(1)
-connection.request("GET", "/api/status", headers={"Host": "127.0.0.1:8788", "Cookie": cookie})
+connection.request("GET", "/api/status", headers={"Host": host, "Cookie": cookie})
 response = connection.getresponse()
 body = response.read()
 if response.status != 200 or b'"protocol":1' not in body or b'"changed":false' not in body:
@@ -464,5 +507,5 @@ connection.close()
 PY
 fi
 
-log 'service_identity=warp-admin listener=127.0.0.1:8788 helper=read-only'
-printf 'ADMIN_INSTALL_OK http://127.0.0.1:8788\n'
+log "service_identity=warp-admin listener=${ADMIN_LISTENER} helper=read-only"
+printf 'ADMIN_INSTALL_OK http://%s\n' "${ADMIN_LISTENER}"

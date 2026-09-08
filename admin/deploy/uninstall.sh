@@ -28,6 +28,7 @@ APP_BASE=$(root_path /opt/warp-egress-admin-console)
 RUNTIME_DIR=$(root_path /run/warp-egress-admin-console)
 CONFIG_DIR=$(root_path /etc/warp-egress-admin-console)
 ACCOUNT_MARKER=${CONFIG_DIR}/.warp-admin-created
+NETWORK_DEST=${CONFIG_DIR}/network.json
 HELPER_DEST=$(root_path /usr/local/libexec/warp-egress-gateway/warp-admin-helper)
 PROTOCOL_DEST=$(root_path /usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py)
 UNIT_DEST=$(root_path /etc/systemd/system/warp-admin.service)
@@ -44,7 +45,7 @@ done
 if [[ -d ${APP_BASE} && -n $(find "${APP_BASE}" -type l -print -quit) ]]; then
   die 'GATE_DESTINATION application tree contains a symlink'
 fi
-for file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}"; do
+for file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}"; do
   if [[ -e ${file} || -L ${file} ]]; then
     [[ -f ${file} && ! -L ${file} ]] || die "GATE_DESTINATION unsafe Admin file: ${file}"
     if [[ ${TEST_MODE} == false ]]; then
@@ -95,7 +96,7 @@ else
   /usr/bin/systemctl disable --now warp-admin.service >/dev/null 2>&1 || true
 fi
 
-rm -f -- "${SUDOERS_DEST}" "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}"
+rm -f -- "${SUDOERS_DEST}" "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${NETWORK_DEST}"
 rm -rf -- "${APP_BASE}" "${RUNTIME_DIR}"
 
 if [[ ${REMOVE_ACCOUNT} == true ]]; then

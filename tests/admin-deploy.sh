@@ -11,6 +11,8 @@ trap 'rm -rf "${TEST_AREA}"' EXIT
 
 run_install() {
   local rootfs=$1 account=${2:-absent}
+  # Synthetic trusted configuration only; never inspect the test host network.
+  "${PYTHON3_BIN}" "${ROOT}/tests/admin_network_fixture.py" "${rootfs}"
   WARP_ADMIN_TEST_MODE=1 \
     WARP_ADMIN_TEST_ROOT="${rootfs}" \
     WARP_ADMIN_TEST_ACCOUNT="${account}" \
@@ -35,11 +37,12 @@ native_before=$(find "${ROOT}/native" -type f -print0 | sort -z | xargs -0 sha25
 rootfs=${TEST_AREA}/rootfs
 mkdir -p "${rootfs}"
 output=$(run_install "${rootfs}" absent)
-grep -qx 'ADMIN_INSTALL_OK http://127.0.0.1:8788' <<<"${output}"
+grep -qx 'ADMIN_INSTALL_OK http://192.0.2.10:8788' <<<"${output}"
 
 required_app=(
   __init__.py
   application.py
+  network.py
   protocol.py
   static/index.html
   static/admin.css
@@ -59,6 +62,30 @@ cmp "${DEPLOY}/systemd/warp-admin.service" "${rootfs}/etc/systemd/system/warp-ad
 [[ $(stat -c '%a' "${rootfs}/run/warp-egress-admin-console") == 700 ]]
 [[ -f ${rootfs}/etc/warp-egress-admin-console/.warp-admin-created ]]
 [[ -f ${rootfs}/var/lib/warp-egress-admin-console/test-account ]]
+
+[[ $(stat -c '%a' "${rootfs}/etc/warp-egress-admin-console/network.json") == 644 ]]
+"${PYTHON3_BIN}" - "${rootfs}/etc/warp-egress-admin-console/network.json" <<'PY'
+import json, sys
+from pathlib import Path
+assert json.loads(Path(sys.argv[1]).read_text()) == {
+    "address": "192.0.2.10", "uplink_if": "ens160", "transit_if": "ens192",
+}
+PY
+
+# Invalid management configuration must fail before account or resource creation.
+for invalid in 0.0.0.0 127.0.0.1 127.0.0.2 ::1 bad 10.1.1.222; do
+  invalid_root=$(mktemp -d "${TEST_AREA}/network-invalid.XXXXXX")
+  "${PYTHON3_BIN}" "${ROOT}/tests/admin_network_fixture.py" "${invalid_root}"
+  printf 'DASHBOARD_LISTEN=%s\nDASHBOARD_PORT=8787\n' "${invalid}" \
+    >"${invalid_root}/etc/warp-egress-dashboard/dashboard.env"
+  if run_install "${invalid_root}" >"${TEST_AREA}/network-invalid.out" 2>&1; then
+    echo "Admin accepted invalid management configuration: ${invalid}" >&2
+    exit 1
+  fi
+  grep -q GATE_NETWORK "${TEST_AREA}/network-invalid.out"
+  [[ ! -e ${invalid_root}/opt/warp-egress-admin-console ]]
+  [[ ! -e ${invalid_root}/var/lib/warp-egress-admin-console/test-actions.log ]]
+done
 
 # A safe reinstall is idempotent and creates the project identity once.
 run_install "${rootfs}" absent >/dev/null
@@ -119,7 +146,7 @@ if WARP_ADMIN_TEST_LISTENER_SCENARIO=never \
   echo 'Admin installer accepted a listener that never became ready.' >&2
   exit 1
 fi
-grep -q 'GATE_LISTENER readiness timeout waiting for exactly 127.0.0.1:8788' \
+grep -q 'GATE_LISTENER readiness timeout waiting for exactly 192.0.2.10:8788' \
   "${TEST_AREA}/listener-never.out"
 
 # A scheduler/probe delay crossing the deadline cannot turn a late exact bind
@@ -132,9 +159,9 @@ if WARP_ADMIN_TEST_LISTENER_SCENARIO=after-deadline-exact \
   echo 'Admin installer accepted an exact listener after the readiness deadline.' >&2
   exit 1
 fi
-grep -q 'GATE_LISTENER readiness timeout waiting for exactly 127.0.0.1:8788' \
+grep -q 'GATE_LISTENER readiness timeout waiting for exactly 192.0.2.10:8788' \
   "${TEST_AREA}/listener-after-deadline.out"
-if grep -q 'addresses=127.0.0.1:8788' \
+if grep -q 'addresses=192.0.2.10:8788' \
   "${listener_after_deadline}/var/lib/warp-egress-admin-console/test-actions.log"; then
   echo 'Admin installer probed and accepted readiness after the deadline.' >&2
   exit 1
@@ -144,7 +171,7 @@ listener_immediate=${TEST_AREA}/listener-immediate
 mkdir -p "${listener_immediate}"
 WARP_ADMIN_TEST_LISTENER_SCENARIO=immediate-exact \
   run_install "${listener_immediate}" absent >/dev/null
-grep -qx 'listener poll=1 service=active count=1 addresses=127.0.0.1:8788' \
+grep -qx 'listener poll=1 service=active count=1 addresses=192.0.2.10:8788' \
   "${listener_immediate}/var/lib/warp-egress-admin-console/test-actions.log"
 
 listener_delayed=${TEST_AREA}/listener-delayed
@@ -153,7 +180,7 @@ WARP_ADMIN_TEST_LISTENER_SCENARIO=delayed-exact \
   run_install "${listener_delayed}" absent >/dev/null
 grep -qx 'listener poll=1 service=active count=0 addresses=none' \
   "${listener_delayed}/var/lib/warp-egress-admin-console/test-actions.log"
-grep -qx 'listener poll=3 service=active count=1 addresses=127.0.0.1:8788' \
+grep -qx 'listener poll=3 service=active count=1 addresses=192.0.2.10:8788' \
   "${listener_delayed}/var/lib/warp-egress-admin-console/test-actions.log"
 
 for state in failed inactive deactivating; do
@@ -174,6 +201,7 @@ for scenario in \
   forbidden-wildcard \
   forbidden-management \
   forbidden-transit \
+  forbidden-loopback \
   forbidden-loopback-alt \
   forbidden-ipv6-loopback \
   forbidden-ipv6-any; do
@@ -184,7 +212,7 @@ for scenario in \
     echo "Admin installer accepted forbidden listener scenario: ${scenario}." >&2
     exit 1
   fi
-  grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 127.0.0.1:8788' \
+  grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 192.0.2.10:8788' \
     "${TEST_AREA}/listener-${scenario}.out"
   [[ $(grep -c '^listener poll=' \
     "${listener_forbidden}/var/lib/warp-egress-admin-console/test-actions.log") -eq 1 ]]
@@ -197,7 +225,7 @@ if WARP_ADMIN_TEST_LISTENER_SCENARIO=multiple \
   echo 'Admin installer accepted multiple listeners on port 8788.' >&2
   exit 1
 fi
-grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 127.0.0.1:8788' \
+grep -q 'GATE_LISTENER unsafe listener state while waiting for exactly 192.0.2.10:8788' \
   "${TEST_AREA}/listener-multiple.out"
 [[ $(grep -c '^listener poll=' \
   "${listener_multiple}/var/lib/warp-egress-admin-console/test-actions.log") -eq 1 ]]

@@ -1,6 +1,6 @@
 # Slice 1B: read-only Admin Console
 
-Slice 1B adds a separate, SSH-forwarded administrative observation plane to
+Slice 1B adds a separate, management-network administrative observation plane to
 the v0.5.1-derived Native gateway. It implements only Passive Status and Run
 Health. It does not add routing repair, WARP lifecycle, intentional-disconnect,
 configuration, upgrade, rollback, reboot, or another mutation authority.
@@ -12,6 +12,7 @@ The dedicated resources are:
 ```text
 /opt/warp-egress-admin-console/app/admin/
 /run/warp-egress-admin-console/
+/etc/warp-egress-admin-console/network.json
 /usr/local/libexec/warp-egress-gateway/warp-admin-helper
 /usr/local/libexec/warp-egress-gateway/warp_admin_protocol.py
 /etc/systemd/system/warp-admin.service
@@ -27,22 +28,46 @@ restarted, reconfigured, or granted privilege.
 
 ## Listener and operator access
 
-The application has no listener configuration. Its only production socket is
-IPv4 `AF_INET` at `127.0.0.1:8788`; arguments and environment variables cannot
-replace the address or port. It does not bind wildcard, management, transit,
-alternate-loopback, hostname, or IPv6 addresses and does not trust proxy
-headers.
+The only production socket is one IPv4 `AF_INET` listener at
+`<management-ip>:8788`. Admin reuses the explicit `DASHBOARD_LISTEN` setting
+in root-owned `/etc/warp-egress-dashboard/dashboard.env`; it does not import
+or change the Dashboard application. The zero-argument root installer reads
+only the uplink/transit/WARP interface roles from
+`/etc/warp-egress-gateway/warp-gateway.env`, without sourcing shell code.
+These fixed-path inputs and their parent directories must be root-owned,
+non-symlink, and not group/other writable; reads are bounded.
 
-The supported remote-access path is an authenticated SSH local forward:
+The selected address must be the sole global IPv4 assigned to the trusted
+uplink and must not also appear on transit. Fixed read-only
+`ip -j -4 address show dev <trusted-interface>` observations verify membership.
+No DNS, first-interface guessing, request data, environment, command-line
+address override, or wildcard fallback is used. Missing, duplicate, malformed,
+ambiguous, unassigned, loopback, wildcard, multicast, link-local, transit, and
+IPv6 configurations fail closed before account creation or installation.
 
-```bash
-ssh -o ExitOnForwardFailure=yes -L 8788:127.0.0.1:8788 cc-warp
-```
+The installer atomically writes a non-secret root:root 0644 projection,
+`/etc/warp-egress-admin-console/network.json`, with only the address and
+uplink/transit interface names. Its parent stays root:root 0755; the account
+marker remains 0600 and the private runtime directory remains warp-admin 0700.
+This is generated data, not a second independently editable address setting.
+At startup the unprivileged service validates that projection, checks the
+current Dashboard address still agrees, and repeats local address membership
+inspection. It never reads the root-private gateway file. After trusted
+address/interface-role changes, rerun the Admin installer under the reviewed
+deployment procedure; stale or unsafe inputs do not fall back to loopback.
 
-The operator then opens `http://127.0.0.1:8788`. Plain HTTP is limited to the
-browser's local loopback plus the encrypted SSH tunnel. Slice 1B adds no TLS,
-reverse proxy, management-interface listener, LDAP, OIDC, password database,
-or direct-network fallback.
+Open `http://<management-ip>:8788` directly from the trusted management network.
+For example, CC uses `http://172.21.31.5:8788`; an HQ configuration can select
+`http://172.20.31.5:8788` without source edits. The Dashboard remains at
+`http://<management-ip>:8787`. SSH tunneling is not the product access model.
+
+HTTP is unencrypted and this slice adds no individual operator authentication.
+Every client able to reach the management listener can establish a browser
+binding and invoke the two read-only operations. The network must therefore
+already restrict access to trusted management clients. Binding and CSRF are
+not authentication or protection against an on-path attacker. This installer
+does not create firewall rules or claim that address binding is a source-network
+ACL. No TLS, proxy, external identity service, or new privilege is added.
 
 ## HTTP and browser boundary
 
@@ -61,17 +86,17 @@ execution routes are absent and return `404` without invoking the helper.
 Unsupported methods do not trigger actions, and CORS/preflight access is not
 enabled.
 
-Every request requires the single exact `Host: 127.0.0.1:8788`. Missing,
+Every request requires the single exact `Host: <management-ip>:8788`. Missing,
 duplicate, alternate, absolute-form, forwarded-host, and proxy-style requests
 fail before helper invocation. Query strings are not accepted.
 
 `GET /` creates independent 256-bit opaque binding and CSRF values. The
 binding cookie is host-only, `HttpOnly`, `SameSite=Strict`, `Path=/`, has no
 `Domain`, and deliberately has no misleading `Secure` attribute on the
-HTTP-over-SSH URL. Records exist only in process memory, expire after 15
+explicit HTTP URL. Records exist only in process memory, expire after 15
 minutes of inactivity or eight hours absolute, are bounded to 1,024 entries,
 and rotate on restart. POST requires the valid binding, a constant-time CSRF
-match, and exact `Origin: http://127.0.0.1:8788`; Referer is not a fallback.
+match, and exact `Origin: http://<management-ip>:8788`; Referer is not a fallback.
 
 Run Health accepts exactly the empty JSON object. It requires one exact
 `Content-Type: application/json`, one explicit decimal `Content-Length` no
@@ -88,7 +113,7 @@ active control and has idle, running, success, and failed presentation states.
 ## Rate limits
 
 Sliding one-minute in-memory budgets are keyed by browser binding rather than
-loopback source IP:
+source IP:
 
 ```text
 status: 60 per binding, 120 global
@@ -204,7 +229,8 @@ Older systemd versions may implicitly enable `NoNewPrivileges` with seccomp
 hardening; merely omitting the directive is not proof of a working sudo path.
 Local syntax and fixture results do not replace a **fresh full CC host
 qualification**, including real process masks and the sudo/helper path.
-Slice 1B is not yet host-qualified.
+The prior loopback candidate was qualified separately; the management-direct
+change requires fresh full host qualification and is not deployed by local tests.
 
 ## Audit model
 
@@ -212,7 +238,7 @@ The application and helper emit linked, bounded journald records for
 `requested`, `started`, and `completed` or `failed`. Records include protocol,
 canonical request ID, fixed action, monotonic duration, stable result code,
 and `changed=false`. Helper-side records are authoritative for privileged
-execution. No individual SSH identity is fabricated, and cookie/CSRF values,
+execution. No individual operator identity is fabricated, and cookie/CSRF values,
 secrets, raw HTTP bodies, raw child output, stderr, profiles, or environment
 are never logged.
 
@@ -229,10 +255,10 @@ The first controlled CC qualification safely stopped when systemd reported the
 service active about one second before the Python process completed its socket
 bind. The root cause was the installer's former single-shot listener assertion.
 The installer now waits up to 10 seconds on a monotonic deadline, polling every
-200 milliseconds for exactly one `AF_INET` listener at `127.0.0.1:8788`.
+200 milliseconds for exactly one `AF_INET` listener at `<management-ip>:8788`.
 Listener absence alone is retried; a failed/inactive service, any forbidden or
 wildcard address, or multiple listeners fails immediately. The fixed listener
-and service security boundary is unchanged. Slice 1B remains pending a fresh
+port, deadline, and service privilege boundary are unchanged. Slice 1B remains pending a fresh
 CC host-qualification run.
 
 `admin/deploy/uninstall.sh` stops/disables only `warp-admin.service`, removes
@@ -259,5 +285,5 @@ repository regression.
 
 Slice 1B intentionally does not implement Repair Routing, Connect,
 Disconnect, intentional-disconnect state, logs browsing, configuration,
-arbitrary commands, Docker Admin Console support, a non-loopback listener,
+arbitrary commands, Docker Admin Console support, a wildcard or transit listener,
 deployment to a host, a version bump, merge, tag, or release.
