@@ -110,6 +110,16 @@ policy. There are no external scripts, styles, fonts, analytics, or permissive
 CORS headers. Dynamic UI values use `textContent`; Run Health is the only
 active control and has idle, running, success, and failed presentation states.
 
+Status refresh starts automatically on page load. The next automatic refresh is
+scheduled 15 seconds after the entire previous attempt completes, including JSON
+processing/rendering or error handling. A slow or pending request cannot start
+another automatic Status request from the same page. Failures retain the same
+15-second delay; there is no tight retry loop. Run Health remains an independent
+manual action with its existing disabled-while-running behavior. This serializes
+one page's automatic polling only; it does not change helper/server locks or
+serialize separate browser pages. The observed polling overlap does not establish
+the cause of a separate transient WARP probe timeout.
+
 ## Rate limits
 
 Sliding one-minute in-memory budgets are keyed by browser binding rather than

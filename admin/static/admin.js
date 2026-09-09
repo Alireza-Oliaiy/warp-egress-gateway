@@ -62,6 +62,9 @@
       badge("overall-state", "failed");
       text("result-message", "Current Admin status is unavailable.");
       document.body.dataset.state = "failed";
+    } finally {
+      // Wait for the complete attempt, including JSON/rendering, before polling again.
+      window.setTimeout(refreshStatus, 15000);
     }
   }
 
@@ -94,5 +97,4 @@
 
   if (healthButton) healthButton.addEventListener("click", runHealth);
   refreshStatus();
-  window.setInterval(refreshStatus, 15000);
 })();

@@ -92,6 +92,7 @@ for required in \
   tests/dashboard.sh tests/dashboard_test.py tests/dashboard_ui_test.js \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
   tests/admin-console.sh tests/admin_console_test.py tests/admin_network_test.py tests/admin_network_fixture.py tests/admin-sudoers.sh \
+  tests/admin_ui_test.js \
   tests/admin-deploy.sh tests/admin_deploy_test.py \
   tests/admin_foundation_test.py tests/fixtures/admin-native-v051/README.md \
   tests/fixtures/admin-native-v051/routing.sh.fixture \
@@ -201,6 +202,7 @@ required = {
     f'{name}/tests/dashboard_ui_test.js', f'{name}/tests/dashboard-deploy.sh',
     f'{name}/tests/dashboard_deploy_test.py', f'{name}/tests/syntax.sh',
     f'{name}/tests/admin-console.sh', f'{name}/tests/admin_console_test.py',
+    f'{name}/tests/admin_ui_test.js',
     f'{name}/tests/admin_network_test.py', f'{name}/tests/admin_network_fixture.py',
     f'{name}/tests/admin-sudoers.sh', f'{name}/tests/admin-deploy.sh',
     f'{name}/tests/admin_deploy_test.py',
