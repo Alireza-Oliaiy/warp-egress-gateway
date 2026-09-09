@@ -506,7 +506,9 @@ def _parse_empty_object(handler: BaseHTTPRequestHandler) -> None:
 class AdminHTTPServer(ThreadingHTTPServer):
     address_family = socket.AF_INET
     daemon_threads = True
-    allow_reuse_address = False
+    # Rebind through prior connections' TIME_WAIT, never share a live listener.
+    allow_reuse_address = True
+    allow_reuse_port = False
 
     def __init__(
         self,
@@ -743,8 +745,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 64
     try:
         server = create_server()
-    except (NetworkConfigError, OSError):
+    except NetworkConfigError:
         print("ADMIN_NETWORK_INVALID: trusted management listener unavailable", file=sys.stderr)
+        return 78
+    except OSError:
+        print("ADMIN_LISTENER_UNAVAILABLE: management socket unavailable", file=sys.stderr)
         return 78
     print(f"WARP Admin Console listening on {server.expected_origin}", flush=True)
     try:

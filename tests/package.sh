@@ -93,7 +93,7 @@ for required in \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
   tests/admin-console.sh tests/admin_console_test.py tests/admin_network_test.py tests/admin_network_fixture.py tests/admin-sudoers.sh \
   tests/admin_ui_test.js \
-  tests/admin-deploy.sh tests/admin_deploy_test.py \
+  tests/admin-deploy.sh tests/admin_deploy_test.py tests/admin_listener_test.py \
   tests/admin_foundation_test.py tests/fixtures/admin-native-v051/README.md \
   tests/fixtures/admin-native-v051/routing.sh.fixture \
   tests/fixtures/admin-native-v051/healthcheck-lib.sh.fixture \
@@ -206,6 +206,7 @@ required = {
     f'{name}/tests/admin_network_test.py', f'{name}/tests/admin_network_fixture.py',
     f'{name}/tests/admin-sudoers.sh', f'{name}/tests/admin-deploy.sh',
     f'{name}/tests/admin_deploy_test.py',
+    f'{name}/tests/admin_listener_test.py',
     f'{name}/tests/admin_foundation_test.py',
     f'{name}/tests/fixtures/admin-native-v051/README.md',
     f'{name}/tests/fixtures/admin-native-v051/routing.sh.fixture',
@@ -303,6 +304,7 @@ if [[ ${WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED:-false} != true ]]; then
   mkdir -p "${OUT}/extracted-tar"
   tar -xzf "${OUT}/${NAME}.tar.gz" -C "${OUT}/extracted-tar"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_deploy_test.py"
+  "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_listener_test.py"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_foundation_test.py"
   extracted="${OUT}/extracted"
   overlay="${OUT}/overlay"

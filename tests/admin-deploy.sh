@@ -8,6 +8,7 @@ TEST_AREA=$(mktemp -d)
 trap 'rm -rf "${TEST_AREA}"' EXIT
 
 (cd "${ROOT}" && "${PYTHON3_BIN}" tests/admin_deploy_test.py)
+(cd "${ROOT}" && "${PYTHON3_BIN}" -B tests/admin_listener_test.py)
 (cd "${ROOT}" && "${PYTHON3_BIN}" -B tests/admin_foundation_test.py)
 
 run_install() {

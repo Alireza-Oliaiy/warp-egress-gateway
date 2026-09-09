@@ -69,6 +69,29 @@ not authentication or protection against an on-path attacker. This installer
 does not create firewall rules or claim that address binding is a source-network
 ACL. No TLS, proxy, external identity service, or new privilege is added.
 
+### Immediate listener restart
+
+Admin enables `SO_REUSEADDR` before binding so closing a client-used listener
+does not prevent its replacement from binding through server-side TCP TIME_WAIT.
+`SO_REUSEPORT` is explicitly disabled: a second independent listener cannot bind
+while the first is still listening. The exact management IPv4/8788 restriction,
+Host/Origin validation, and installer readiness/stable-process checks are unchanged.
+There are no bind retries, fallback addresses, or waits for TIME_WAIT expiry.
+
+Startup keeps exit status 78 but distinguishes sanitized
+`ADMIN_NETWORK_INVALID` configuration failures from `ADMIN_LISTENER_UNAVAILABLE`
+socket failures. Neither diagnostic includes raw exception details.
+
+Linux requires reuse on both the previous and replacement sockets. This change
+cannot retroactively make connections created by an older `SO_REUSEADDR=false`
+process reusable. A first upgrade from that implementation can still encounter
+its remaining TIME_WAIT state; this is not evidence of invalid management
+configuration. The installer must continue to fail closed if readiness is not
+proven. This fix does not authorize a deployment/recovery workaround or change
+the installer timeout. Once running with reuse enabled, immediate restarts are
+covered by real Linux HTTP/socket and isolated installer regressions, including
+one replacement process, HTTP smoke success, stable PID, and `NRestarts=0`.
+
 ## HTTP and browser boundary
 
 The only routes are:
