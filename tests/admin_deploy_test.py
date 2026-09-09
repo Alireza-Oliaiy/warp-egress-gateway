@@ -59,7 +59,7 @@ if kind == "systemctl":
             installed = root / "rootfs/opt/warp-egress-admin-console/app/admin"
             expected = root / "payload/admin"
             for path in expected.rglob("*"):
-                if path.is_file() and path.parent.name != "deploy" and path.suffix in (".py", ".js", ".css", ".html") and path.name != "helper.py":
+                if path.is_file() and "deploy" not in path.relative_to(expected).parts and path.suffix in (".py", ".js", ".css", ".html") and path.name != "helper.py":
                     relative = path.relative_to(expected)
                     assert (installed / relative).read_bytes() == path.read_bytes()
             config = json.loads((root / "rootfs/etc/warp-egress-admin-console/network.json").read_text())
@@ -109,6 +109,7 @@ class AdminInstallerMigrationTests(unittest.TestCase):
             area = Path(temporary)
             payload = area / "payload"
             shutil.copytree(ROOT / "admin", payload / "admin")
+            shutil.copytree(ROOT / "native/scripts", payload / "native/scripts")
             # Windows checkout modes are not meaningful on Linux-mounted paths.
             for path in payload.rglob("*"):
                 path.chmod(0o755 if path.is_dir() else 0o644)

@@ -146,9 +146,16 @@ not contain `repair-routing`, `connect`, or `disconnect`, and the schema has no
 path, service, interface, executable, argv, environment, URL, timeout, or
 configuration field.
 
-Both operations execute only the fixed official
-`/usr/local/lib/warp-egress-gateway/health-readonly.sh` Slice 1A entrypoint.
-That entrypoint acquires the qualified shared side of
+Both operations execute only the fixed zero-argument
+`/opt/warp-egress-admin-console/readonly/v1/evaluate.py` launcher. Admin installs
+the official Slice 1A no-recovery evaluator and its complete coherent source
+closure in this isolated Admin-owned bundle. A fresh released native v0.5.1
+Core need not contain any development read-only scripts: Admin never installs
+these dependencies into or over the host's native library/CLI. See
+[the deployment foundation contract](READ_ONLY_FOUNDATION.md).
+
+The launcher clears inherited environment overrides and enters the bundled
+`health-readonly.sh`. That entrypoint acquires the qualified shared side of
 `/run/warp-egress-gateway/admin-mutation.lock`; the helper neither opens a
 second lock nor changes lock metadata. The legacy recovering `warp-gateway
 health` operation is never invoked.

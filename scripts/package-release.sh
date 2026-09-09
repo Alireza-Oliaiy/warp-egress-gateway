@@ -71,6 +71,7 @@ chmod 0644 \
   "${STAGE}/${NAME}/admin/static/index.html" \
   "${STAGE}/${NAME}/admin/static/admin.css" \
   "${STAGE}/${NAME}/admin/static/admin.js" \
+  "${STAGE}/${NAME}/admin/deploy/readonly/evaluate.py" \
   "${STAGE}/${NAME}/admin/deploy/systemd/warp-admin.service" \
   "${STAGE}/${NAME}/admin/deploy/tmpfiles/warp-egress-admin-console.conf"
 chmod 0440 \

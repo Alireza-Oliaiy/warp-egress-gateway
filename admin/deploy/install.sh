@@ -44,6 +44,9 @@ root_path() { printf '%s%s' "${ROOT_PREFIX}" "$1"; }
 APP_BASE=$(root_path /opt/warp-egress-admin-console)
 APP_ROOT=${APP_BASE}/app
 ADMIN_APP=${APP_ROOT}/admin
+READONLY_PARENT=${APP_BASE}/readonly
+READONLY_BUNDLE=${READONLY_PARENT}/v1
+readonly_files=(evaluate.py health-readonly.sh common.sh routing.sh admin-lock.sh healthcheck-lib.sh observation-entrypoints.sh)
 RUNTIME_DIR=$(root_path /run/warp-egress-admin-console)
 SHARED_RUNTIME_DIR=$(root_path /run/warp-egress-gateway)
 TMPFILES_SOURCE=${SCRIPT_DIR}/tmpfiles/warp-egress-admin-console.conf
@@ -169,6 +172,59 @@ for destination in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS
     fi
   fi
 done
+
+readonly_source() {
+  if [[ $1 == evaluate.py ]]; then printf '%s/readonly/evaluate.py' "${SCRIPT_DIR}"
+  else printf '%s/native/scripts/%s' "${SOURCE_ROOT}" "$1"; fi
+}
+
+validate_foundation_directory() {
+  [[ -d $1 && ! -L $1 ]] || die 'GATE_FOUNDATION unsafe foundation directory'
+  local metadata mode
+  metadata=$(stat -c '%u:%g:%a' -- "$1")
+  mode=${metadata##*:}
+  [[ ${metadata%:*} == "${RUNTIME_OWNER}" && $((8#${mode} & 8#22)) -eq 0 ]] \
+    || die 'GATE_FOUNDATION foundation directory is not root-controlled'
+}
+
+# Validate source closure and installed ancestors before any account/file/service
+# mutation. Never obtain dependencies from the host's older native Core tree.
+for directory in "${SOURCE_ROOT}/native" "${SOURCE_ROOT}/native/scripts" "${SCRIPT_DIR}/readonly"; do
+  validate_foundation_directory "${directory}"
+done
+for name in "${readonly_files[@]}"; do
+  source=$(readonly_source "${name}")
+  [[ -f ${source} && ! -L ${source} ]] || die 'GATE_FOUNDATION missing or unsafe bundle source'
+  metadata=$(stat -c '%u:%g:%a' -- "${source}")
+  mode=${metadata##*:}
+  [[ ${metadata%:*} == "${RUNTIME_OWNER}" && $((8#${mode} & 8#22)) -eq 0 ]] \
+    || die 'GATE_FOUNDATION bundle source is not root-controlled'
+done
+directory=${READONLY_PARENT}
+while [[ ${directory} != "${ROOT_PREFIX:-/}" ]]; do
+  if [[ -e ${directory} || -L ${directory} ]]; then validate_foundation_directory "${directory}"; fi
+  directory=$(dirname -- "${directory}")
+done
+validate_foundation_directory "${ROOT_PREFIX:-/}"
+
+validate_foundation_bundle() {
+  local bundle=$1 name mode
+  validate_foundation_directory "${bundle}"
+  [[ $(find "${bundle}" -mindepth 1 -maxdepth 1 -printf '. ' | wc -w) -eq ${#readonly_files[@]} ]] \
+    || die 'GATE_FOUNDATION unexpected bundle contents'
+  for name in "${readonly_files[@]}"; do
+    mode=644
+    if [[ ${name} == evaluate.py ]]; then mode=755; fi
+    [[ -f ${bundle}/${name} && ! -L ${bundle}/${name} \
+        && $(stat -c '%u:%g:%a' -- "${bundle}/${name}") == "${RUNTIME_OWNER}:${mode}" ]] \
+      || die 'GATE_FOUNDATION unsafe installed bundle file'
+    cmp -s -- "$(readonly_source "${name}")" "${bundle}/${name}" \
+      || die 'GATE_FOUNDATION existing bundle version differs; refusing a mixed or rewritten foundation'
+  done
+}
+if [[ -e ${READONLY_BUNDLE} || -L ${READONLY_BUNDLE} ]]; then
+  validate_foundation_bundle "${READONLY_BUNDLE}"
+fi
 
 account_state() {
   if [[ ${TEST_MODE} == true ]]; then
@@ -480,6 +536,23 @@ if [[ ${ACCOUNT_CREATE:-false} == true ]]; then
 fi
 
 install_directory 0755 "${ADMIN_APP}"
+# Publish one complete immutable version before installing the helper that uses
+# it. Reinstall reuses an identical safe bundle; changed versions need a new ID.
+install_directory 0755 "${READONLY_PARENT}"
+if [[ ! -e ${READONLY_BUNDLE} ]]; then
+  foundation_temporary=$(mktemp -d "${READONLY_PARENT}/.v1.XXXXXXXX")
+  for name in "${readonly_files[@]}"; do
+    mode=0644
+    if [[ ${name} == evaluate.py ]]; then mode=0755; fi
+    install_file "${mode}" "$(readonly_source "${name}")" "${foundation_temporary}/${name}"
+  done
+  chmod 0755 "${foundation_temporary}"
+  validate_foundation_bundle "${foundation_temporary}"
+  # -T forbids accidentally nesting a bundle if another installer won the race;
+  # an existing nonempty version cannot be replaced by this directory rename.
+  mv -T -- "${foundation_temporary}" "${READONLY_BUNDLE}"
+fi
+validate_foundation_bundle "${READONLY_BUNDLE}"
 for relative in "${app_files[@]}"; do
   install_file 0644 "${SOURCE_ROOT}/admin/${relative}" "${ADMIN_APP}/${relative}"
 done

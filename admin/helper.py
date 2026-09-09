@@ -98,7 +98,13 @@ except ImportError:  # pragma: no cover - exercised by installed-script fixtures
     )
 
 
-HEALTH_READONLY_PATH = "/usr/local/lib/warp-egress-gateway/health-readonly.sh"
+READONLY_BUNDLE = Path("/opt/warp-egress-admin-console/readonly/v1")
+HEALTH_READONLY_PATH = str(READONLY_BUNDLE / "evaluate.py")
+READONLY_FILES = (
+    "evaluate.py", "health-readonly.sh", "common.sh", "routing.sh", "admin-lock.sh",
+    "healthcheck-lib.sh", "observation-entrypoints.sh",
+)
+GATEWAY_CONFIG = Path("/etc/warp-egress-gateway/warp-gateway.env")
 VERSION_PATH = Path("/etc/warp-egress-gateway/VERSION")
 LOGGER_PATH = "/usr/bin/logger"
 FIXED_ENVIRONMENT = {
@@ -243,8 +249,49 @@ def _bounded_process(
     return CommandResult(returncode, bytes(output["stdout"]), bytes(output["stderr"]))
 
 
+def validate_readonly_metadata(
+    bundle: Path = READONLY_BUNDLE,
+    config: Path = GATEWAY_CONFIG,
+    *,
+    required_uid: int = 0,
+    required_gid: int = 0,
+    parents: Sequence[Path] | None = None,
+) -> bool:
+    """Gate the complete fixed executable/source/configuration chain, not Core.
+
+    Parameters exist for isolated filesystem tests; production always calls this
+    with no arguments. No request field or environment value selects a path.
+    """
+    try:
+        checked_parents = ((bundle, *bundle.parents, *config.parents)
+                           if parents is None else (bundle, *parents))
+        for parent in checked_parents:
+            info = parent.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != required_uid
+                    or info.st_gid != required_gid or stat.S_IMODE(info.st_mode) & 0o022):
+                return False
+        if {path.name for path in bundle.iterdir()} != set(READONLY_FILES):
+            return False
+        for path in (*(bundle / name for name in READONLY_FILES), config):
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != required_uid
+                    or info.st_gid != required_gid):
+                return False
+            mode = stat.S_IMODE(info.st_mode)
+            if path == config:
+                if mode not in (0o600, 0o640, 0o644):
+                    return False
+            elif mode != (0o755 if path.name == "evaluate.py" else 0o644):
+                return False
+        return True
+    except OSError:
+        return False
+
+
 class HealthReadonlyRunner:
     def run(self) -> CommandResult:
+        if not validate_readonly_metadata():
+            raise HelperRuntimeError("observation_unavailable")
         return _bounded_process(
             (HEALTH_READONLY_PATH,),
             timeout=OBSERVATION_TIMEOUT_SECONDS,

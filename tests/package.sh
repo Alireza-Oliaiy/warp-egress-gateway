@@ -33,6 +33,23 @@ for relative in ('admin/deploy/systemd/warp-admin.service',
         assert (member.external_attr >> 16) & 0o170777 == 0o100644
         assert archive.read(member) == expected
 print('Admin unit/tmpfiles TAR/ZIP provenance and modes passed.')
+# All seven isolated bundle inputs must survive packaging coherently. The
+# installer assembles them under Admin readonly/v1, never the host native tree.
+inputs = {'admin/deploy/readonly/evaluate.py': 0o644}
+inputs.update({f'native/scripts/{file}': 0o755 for file in (
+    'health-readonly.sh', 'common.sh', 'routing.sh', 'admin-lock.sh',
+    'healthcheck-lib.sh', 'observation-entrypoints.sh')})
+for relative, mode in inputs.items():
+    expected = (root / relative).read_bytes()
+    with tarfile.open(out / f'{name}.tar.gz') as archive:
+        member = archive.getmember(f'{name}/{relative}')
+        assert member.isfile() and member.mode == mode, relative
+        assert archive.extractfile(member).read() == expected, relative
+    with zipfile.ZipFile(out / f'{name}.zip') as archive:
+        member = archive.getinfo(f'{name}/{relative}')
+        assert (member.external_attr >> 16) & 0o170777 == 0o100000 | mode, relative
+        assert archive.read(member) == expected, relative
+print('Complete Admin readonly/v1 bundle inputs: TAR/ZIP bytes and modes passed.')
 PY
 grep -q 'PACKAGE_PAYLOAD_TESTED' "${ROOT}/tests/package.sh" || {
   echo "Package validation must run the extracted payload suite exactly once." >&2; exit 1;
@@ -76,6 +93,10 @@ for required in \
   tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
   tests/admin-console.sh tests/admin_console_test.py tests/admin_network_test.py tests/admin_network_fixture.py tests/admin-sudoers.sh \
   tests/admin-deploy.sh tests/admin_deploy_test.py \
+  tests/admin_foundation_test.py tests/fixtures/admin-native-v051/README.md \
+  tests/fixtures/admin-native-v051/routing.sh.fixture \
+  tests/fixtures/admin-native-v051/healthcheck-lib.sh.fixture \
+  tests/fixtures/admin-native-v051/warp-gateway.fixture \
   tests/health-lock.sh tests/health-readonly.sh tests/observation-locking.sh \
   tests/writer-locking.sh \
   docker/generated/.gitkeep docker/state/.gitkeep; do
@@ -183,6 +204,11 @@ required = {
     f'{name}/tests/admin_network_test.py', f'{name}/tests/admin_network_fixture.py',
     f'{name}/tests/admin-sudoers.sh', f'{name}/tests/admin-deploy.sh',
     f'{name}/tests/admin_deploy_test.py',
+    f'{name}/tests/admin_foundation_test.py',
+    f'{name}/tests/fixtures/admin-native-v051/README.md',
+    f'{name}/tests/fixtures/admin-native-v051/routing.sh.fixture',
+    f'{name}/tests/fixtures/admin-native-v051/healthcheck-lib.sh.fixture',
+    f'{name}/tests/fixtures/admin-native-v051/warp-gateway.fixture',
     f'{name}/tests/health-lock.sh', f'{name}/tests/health-readonly.sh',
     f'{name}/tests/observation-locking.sh', f'{name}/tests/writer-locking.sh',
     f'{name}/docker/generated/.gitkeep',
@@ -275,6 +301,7 @@ if [[ ${WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED:-false} != true ]]; then
   mkdir -p "${OUT}/extracted-tar"
   tar -xzf "${OUT}/${NAME}.tar.gz" -C "${OUT}/extracted-tar"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_deploy_test.py"
+  "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_foundation_test.py"
   extracted="${OUT}/extracted"
   overlay="${OUT}/overlay"
   "${PYTHON3_BIN}" - "${OUT}/${NAME}.zip" "${extracted}" <<'PY'

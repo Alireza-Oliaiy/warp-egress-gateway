@@ -53,6 +53,33 @@ fi
 if [[ -d ${APP_BASE} && -n $(find "${APP_BASE}" -type l -print -quit) ]]; then
   die 'GATE_DESTINATION application tree contains a symlink'
 fi
+# The isolated evaluator belongs only to this fixed Admin tree. Validate its
+# ancestors and contents before recursive removal, including failed assemblies.
+APP_OWNER=0:0
+if [[ ${TEST_MODE} == true ]]; then APP_OWNER=$(id -u):$(id -g); fi
+validate_admin_removal_path() {
+  local entry=$1 metadata mode
+  [[ ! -L ${entry} && ( -d ${entry} || -f ${entry} ) ]] \
+    || die 'GATE_DESTINATION unsafe Admin removal path'
+  metadata=$(stat -c '%u:%g:%a' -- "${entry}")
+  mode=${metadata##*:}
+  [[ ${metadata%:*} == "${APP_OWNER}" && $((8#${mode} & 8#22)) -eq 0 ]] \
+    || die 'GATE_DESTINATION Admin removal path is not root-controlled'
+}
+directory=${APP_BASE}
+while [[ ${directory} != "${ROOT_PREFIX:-/}" ]]; do
+  if [[ -e ${directory} || -L ${directory} ]]; then
+    [[ -d ${directory} ]] || die 'GATE_DESTINATION unsafe Admin removal ancestor'
+    validate_admin_removal_path "${directory}"
+  fi
+  directory=$(dirname -- "${directory}")
+done
+validate_admin_removal_path "${ROOT_PREFIX:-/}"
+if [[ -d ${APP_BASE} ]]; then
+  while IFS= read -r -d '' entry; do
+    validate_admin_removal_path "${entry}"
+  done < <(find "${APP_BASE}" -mindepth 1 -print0)
+fi
 for file in "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${SUDOERS_DEST}" "${NETWORK_DEST}" "${TMPFILES_DEST}"; do
   if [[ -e ${file} || -L ${file} ]]; then
     [[ -f ${file} && ! -L ${file} ]] || die "GATE_DESTINATION unsafe Admin file: ${file}"
@@ -105,6 +132,8 @@ else
 fi
 
 # Remove only the Admin-owned boot rule, never the shared runtime parent/lock.
+# APP_BASE includes readonly/v1 and any incomplete .v1.* install staging.
+# None of these files live in the installed native Core library directory.
 rm -f -- "${SUDOERS_DEST}" "${HELPER_DEST}" "${PROTOCOL_DEST}" "${UNIT_DEST}" "${NETWORK_DEST}" "${TMPFILES_DEST}"
 rm -rf -- "${APP_BASE}" "${RUNTIME_DIR}"
 

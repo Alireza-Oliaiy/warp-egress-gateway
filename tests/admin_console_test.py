@@ -404,13 +404,21 @@ class HelperTests(unittest.TestCase):
     def test_runner_invokes_only_fixed_health_readonly_entrypoint(self) -> None:
         from admin import helper
 
-        expected = ("/usr/local/lib/warp-egress-gateway/health-readonly.sh",)
-        with mock.patch.object(helper, "_bounded_process", return_value=CommandResult(0, HEALTHY_LINE, b"")) as run:
+        expected = ("/opt/warp-egress-admin-console/readonly/v1/evaluate.py",)
+        with mock.patch.object(helper, "validate_readonly_metadata", return_value=True) as metadata, \
+                mock.patch.object(helper, "_bounded_process", return_value=CommandResult(0, HEALTHY_LINE, b"")) as run:
             helper.HealthReadonlyRunner().run()
+        metadata.assert_called_once_with()
         self.assertEqual(run.call_args.args[0], expected)
         flattened = " ".join(expected)
         for forbidden in (" health ", "route-repair", "systemctl", "nft", "wg ", "sysctl", "intent"):
             self.assertNotIn(forbidden, f" {flattened} ")
+
+        with mock.patch.object(helper, "validate_readonly_metadata", return_value=False), \
+                mock.patch.object(helper, "_bounded_process") as run:
+            with self.assertRaises(HelperRuntimeError):
+                helper.HealthReadonlyRunner().run()
+            run.assert_not_called()
 
     def test_bounded_runner_fails_closed_on_timeout_and_output_overflow(self) -> None:
         from admin import helper
