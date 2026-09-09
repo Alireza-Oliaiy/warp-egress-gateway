@@ -203,9 +203,9 @@ class FrozenBoundaryTests(unittest.TestCase):
             ),
         )
 
-    def test_slice_1b_protocol_exposes_only_read_only_operations(self) -> None:
+    def test_slice_2_protocol_exposes_only_observations_and_bounded_repair(self) -> None:
         self.assertEqual(PROTOCOL_VERSION, 1)
-        self.assertEqual(OPERATIONS, frozenset({"status", "health"}))
+        self.assertEqual(OPERATIONS, frozenset({"status", "health", "repair-routing"}))
 
     def test_production_server_has_no_bind_override(self) -> None:
         from admin import application
@@ -276,7 +276,7 @@ class ProtocolTests(unittest.TestCase):
         )
 
     def test_request_rejects_future_operations_and_arbitrary_fields(self) -> None:
-        for operation in ("repair-routing", "connect", "disconnect", "unknown"):
+        for operation in ("connect", "disconnect", "unknown"):
             raw = json.dumps({"protocol": 1, "operation": operation, "request_id": REQUEST_ID}).encode()
             with self.subTest(operation=operation), self.assertRaises(ProtocolError):
                 loads_request(raw)
@@ -638,7 +638,7 @@ class HTTPBoundaryTests(unittest.TestCase):
         self.assertEqual([call[0] for call in helper.calls], ["status", "health"])
         self.assertEqual(helper.calls[0][1], status_value["request_id"])
         self.assertEqual(helper.calls[1][1], health_value["request_id"])
-        self.assertTrue(all(event.get("changed") is None for event in audit.events))
+        self.assertTrue(all(event.get("changed", False) is False for event in audit.events))
         event_text = json.dumps(audit.events)
         self.assertNotIn(cookie, event_text)
         self.assertNotIn(csrf, event_text)
@@ -718,7 +718,6 @@ class HTTPBoundaryTests(unittest.TestCase):
 
     def test_mutation_and_generic_routes_are_unavailable(self) -> None:
         paths = (
-            "/api/actions/repair-routing",
             "/api/actions/connect",
             "/api/actions/disconnect",
             "/api/action",
@@ -799,15 +798,16 @@ class HTTPBoundaryTests(unittest.TestCase):
 
 
 class UIContractTests(unittest.TestCase):
-    def test_ui_is_local_text_only_and_exposes_only_run_health(self) -> None:
+    def test_ui_is_local_text_only_and_exposes_only_health_and_repair(self) -> None:
         html = (ROOT / "admin" / "static" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "admin" / "static" / "admin.js").read_text(encoding="utf-8")
         self.assertIn("Admin Console", html)
         self.assertIn("Run Health", html)
+        self.assertIn("Repair Routing", html)
         self.assertIn("Management network · read-only", html)
         self.assertNotIn("ssh -L", html)
         self.assertNotIn("SSH tunnel", html)
-        for absent in ("Repair Routing", "Connect WARP", "Disconnect WARP", "terminal", "config editor", "logs console"):
+        for absent in ("Connect WARP", "Disconnect WARP", "terminal", "config editor", "logs console"):
             self.assertNotIn(absent, html)
         for forbidden in ("innerHTML", "eval(", "Function(", "document.write", "http://", "https://"):
             self.assertNotIn(forbidden, script)

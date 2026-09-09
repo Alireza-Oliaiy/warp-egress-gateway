@@ -123,8 +123,8 @@ SESSION_INACTIVITY_SECONDS = 15 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
 MAX_SESSIONS = 1024
 RATE_WINDOW_SECONDS = 60.0
-PER_BINDING_LIMITS = {"status": 60, "health": 6}
-GLOBAL_LIMITS = {"status": 120, "health": 12}
+PER_BINDING_LIMITS = {"status": 60, "health": 6, "repair-routing": 3}
+GLOBAL_LIMITS = {"status": 120, "health": 12, "repair-routing": 6}
 MAX_ASSET_BYTES = 256 * 1024
 SOURCE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = SOURCE_DIR / "static"
@@ -176,6 +176,9 @@ class JournalAudit:
             "helper_protocol_error",
             "helper_unavailable",
             "privilege_denied",
+            "unsafe_precondition",
+            "partial_mutation_failure",
+            "postcondition_failed",
         }
     )
 
@@ -189,19 +192,21 @@ class JournalAudit:
             type(request_id) is not str
             or not _canonical_uuid_text(request_id)
             or type(action) is not str
-            or action not in {"status", "health"}
+            or action not in {"status", "health", "repair-routing"}
             or type(state_name) is not str
             or state_name not in self._STATES
             or type(result_code) is not str
             or result_code not in self._RESULT_CODES
             or type(duration_ms) is not int
             or not 0 <= duration_ms <= 3_600_000
+            or type(fields.get("changed", False)) is not bool
+            or (fields.get("changed", False) and (action != "repair-routing" or result_code != "ok"))
         ):
             return
         message = (
             "WARP_ADMIN_APP protocol=1 "
             f"request_id={request_id} action={action} state={state_name} "
-            f"duration_ms={duration_ms} result_code={result_code} changed=false"
+            f"duration_ms={duration_ms} result_code={result_code} changed={str(fields.get('changed', False)).lower()}"
         )
         try:
             subprocess.run(
@@ -477,7 +482,7 @@ def _valid_host(headers: object, expected_host: str) -> bool:
     return True
 
 
-def _parse_empty_object(handler: BaseHTTPRequestHandler) -> None:
+def _parse_action_body(handler: BaseHTTPRequestHandler, operation: str) -> None:
     headers = handler.headers
     content_types = headers.get_all("Content-Type", [])
     lengths = headers.get_all("Content-Length", [])
@@ -487,6 +492,8 @@ def _parse_empty_object(handler: BaseHTTPRequestHandler) -> None:
         raise AdminError("bad_request")
     if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal():
         raise AdminError("bad_request")
+    if len(lengths[0]) > len(str(MAX_HTTP_BODY_BYTES)):
+        raise AdminError("payload_too_large")
     length = int(lengths[0], 10)
     if length > MAX_HTTP_BODY_BYTES:
         raise AdminError("payload_too_large")
@@ -499,7 +506,8 @@ def _parse_empty_object(handler: BaseHTTPRequestHandler) -> None:
         value = loads_exact_json(raw, maximum=MAX_HTTP_BODY_BYTES)
     except ProtocolError as exc:
         raise AdminError("bad_request") from exc
-    if type(value) is not dict or value:
+    expected = {"confirmation": "repair-routing"} if operation == "repair-routing" else {}
+    if type(value) is not dict or value != expected:
         raise AdminError("bad_request")
 
 
@@ -614,6 +622,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                 state="completed" if response["ok"] else "failed",
                 result_code=response["result_code"],
                 duration_ms=duration,
+                changed=response["changed"],
             )
             code = 200
             if not response["ok"]:
@@ -622,9 +631,15 @@ class AdminHandler(BaseHTTPRequestHandler):
                     "operation_timeout": 504,
                     "observation_unavailable": 503,
                     "helper_protocol_error": 502,
+                    "unsafe_precondition": 409,
+                    "partial_mutation_failure": 500,
+                    "postcondition_failed": 500,
                 }.get(str(response["result_code"]), 502)
             payload = json.dumps(response, allow_nan=False, ensure_ascii=True, separators=(",", ":")).encode("ascii")
-            self._write(code, "application/json; charset=utf-8", payload)
+            # Capability advertisement, not a safety verdict; the helper checks
+            # prerequisites afresh under its exclusive lock for every action.
+            headers = {"X-Warp-Admin-Repair-Routing": "requires-safety-check"} if operation == "status" else None
+            self._write(code, "application/json; charset=utf-8", payload, headers=headers)
         except AdminError as exc:
             duration = min(int((time.monotonic() - started) * 1000), 3_600_000)
             audit.emit(
@@ -688,7 +703,8 @@ class AdminHandler(BaseHTTPRequestHandler):
         path = self._preflight()
         if path is None:
             return
-        if path != "/api/actions/health":
+        operations = {"/api/actions/health": "health", "/api/actions/repair-routing": "repair-routing"}
+        if path not in operations:
             self._json_error(404, "not_found")
             return
         origins = self.headers.get_all("Origin", [])
@@ -701,12 +717,12 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._json_error(403, "request_boundary_rejected")
             return
         try:
-            _parse_empty_object(self)
+            _parse_action_body(self, operations[path])
         except AdminError as exc:
             status = {"unsupported_media_type": 415, "payload_too_large": 413}.get(exc.code, 400)
             self._json_error(status, exc.code)
             return
-        self._invoke("health", binding)
+        self._invoke(operations[path], binding)
 
     def do_OPTIONS(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if self._preflight() is not None:

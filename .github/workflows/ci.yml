@@ -13,6 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install validation tools
-        run: sudo apt-get update && sudo apt-get install -y shellcheck docker-compose-v2
+        run: sudo apt-get update && sudo apt-get install -y shellcheck docker-compose-v2 iproute2 nftables wireguard-tools
       - name: Run tests
         run: bash tests/run-all.sh

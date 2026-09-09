@@ -11,13 +11,14 @@ from typing import Any
 
 
 PROTOCOL_VERSION = 1
-OPERATIONS = frozenset({"status", "health"})
+OPERATIONS = frozenset({"status", "health", "repair-routing"})
+REPAIR_RESULT_CODES = frozenset({"unsafe_precondition", "partial_mutation_failure", "postcondition_failed"})
 MAX_HELPER_INPUT_BYTES = 4096
 MAX_HELPER_OUTPUT_BYTES = 64 * 1024
 MAX_HTTP_BODY_BYTES = 1024
 
 STATES = frozenset({"ok", "degraded", "failed", "intentionally_disconnected"})
-RESULT_CODES = frozenset(
+RESULT_CODES = REPAIR_RESULT_CODES | frozenset(
     {
         "ok",
         "evaluation_unhealthy",
@@ -183,12 +184,15 @@ def validate_response(value: object) -> dict[str, object]:
     if type(value["ok"]) is not bool:
         raise ProtocolError("response.ok is invalid")
     result_code = _enum(value["result_code"], RESULT_CODES, "response.result_code")
-    if value["changed"] is not False:
-        raise ProtocolError("response.changed must be false")
+    repair = value["operation"] == "repair-routing"
+    if type(value["changed"]) is not bool or (value["changed"] and (not repair or result_code != "ok")):
+        raise ProtocolError("changed is permitted only for a verified successful repair")
+    if not repair and result_code in REPAIR_RESULT_CODES:
+        raise ProtocolError("repair failure code on a read-only operation")
     state = _enum(value["state"], STATES, "response.state")
     evidence = validate_evidence(value["evidence"])
     if result_code == "ok":
-        if value["ok"] is not True or state != "ok":
+        if value["ok"] is not True or state not in ({"ok", "degraded"} if repair else {"ok"}):
             raise ProtocolError("successful response fields are inconsistent")
         required_healthy = {
             "wireguard": "up",
@@ -198,10 +202,12 @@ def validate_response(value: object) -> dict[str, object]:
             "kill_switch": "active",
             "monitoring": "ok",
         }
+        if repair and state == "degraded":
+            required_healthy = {"wireguard": "up", "routing": "ok", "kill_switch": "active"}
         if any(evidence[key] != expected for key, expected in required_healthy.items()):
             raise ProtocolError("ok state lacks required dataplane evidence")
     elif result_code == "evaluation_unhealthy":
-        if value["ok"] is not True or state != "failed":
+        if repair or value["ok"] is not True or state != "failed":
             raise ProtocolError("unhealthy evaluation fields are inconsistent")
     elif value["ok"] is not False or state != "failed":
         raise ProtocolError("failed response fields are inconsistent")

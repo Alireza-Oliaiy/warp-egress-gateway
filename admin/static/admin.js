@@ -4,6 +4,7 @@
   const csrfNode = document.querySelector('meta[name="csrf-token"]');
   const csrfToken = csrfNode ? csrfNode.getAttribute("content") : "";
   const healthButton = document.getElementById("run-health");
+  const repairButton = document.getElementById("repair-routing");
 
   function node(id) {
     return document.getElementById(id);
@@ -96,5 +97,39 @@
   }
 
   if (healthButton) healthButton.addEventListener("click", runHealth);
+  async function repairRouting() {
+    if (!repairButton || repairButton.disabled) return;
+    if (!window.confirm("Repair only missing gateway policy-routing rules/default? WARP and the main default will not be restarted or changed.")) return;
+    repairButton.disabled = true;
+    repairButton.textContent = "Running…";
+    text("repair-message", "Running bounded routing repair and safety verification…");
+    try {
+      const response = await fetch("/api/actions/repair-routing", {
+        method: "POST", cache: "no-store", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: '{"confirmation":"repair-routing"}',
+      });
+      const result = await readJson(response);
+      text("repair-message", result.changed === true
+        ? "Missing routing restored and verified. Status remains an independent read-only observation."
+        : "Routing already healthy: no change required.");
+    } catch (error) {
+      const messages = {
+        mutation_lock_busy: "Mutation lock is busy. No changes made; retry explicitly when idle.",
+        unsafe_precondition: "Unsafe routing precondition: no changes made. Inspect gateway state.",
+        operation_timeout: "Repair timed out. Partial changes may exist; inspect gateway state.",
+        partial_mutation_failure: "Repair failed after a write attempt. Partial changes may exist; inspect gateway state.",
+        postcondition_failed: "Final safety verification failed. Inspect gateway state; no automatic retry.",
+        helper_unavailable: "Repair helper is unavailable.",
+        privilege_denied: "Repair helper authorization is unavailable.",
+        rate_limited: "Repair rate limit reached. Wait before an explicit retry.",
+      };
+      text("repair-message", Object.hasOwn(messages, error.message) ? messages[error.message] : "Routing repair failed. Inspect gateway state.");
+    } finally {
+      repairButton.disabled = false;
+      repairButton.textContent = "Repair Routing";
+    }
+  }
+  if (repairButton) repairButton.addEventListener("click", repairRouting);
   refreshStatus();
 })();

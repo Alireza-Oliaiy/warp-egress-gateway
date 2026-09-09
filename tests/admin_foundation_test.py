@@ -261,7 +261,10 @@ class AdminFoundationTests(unittest.TestCase):
             status, _, body = request(server, "POST", "/api/actions/health", headers=headers, body=b"{}")
             self.assertEqual(status, 200)
             self.assertFalse(json.loads(body)["changed"])
-            for operation in ("connect", "disconnect", "repair-routing"):
+            # Repair now exists, but an unconfirmed request cannot reach the
+            # helper. Future lifecycle operations remain absent.
+            self.assertEqual(request(server, "POST", "/api/actions/repair-routing", headers=headers, body=b"{}")[0], 400)
+            for operation in ("connect", "disconnect"):
                 self.assertEqual(request(server, "POST", "/api/actions/" + operation, headers=headers, body=b"{}")[0], 404)
         self.assert_core_unchanged()
 

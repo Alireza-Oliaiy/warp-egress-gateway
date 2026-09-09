@@ -48,6 +48,16 @@
       </div>
       <button id="run-health" type="button">Run Health</button>
     </section>
+
+    <section class="panel action-panel" aria-labelledby="repair-heading">
+      <div>
+        <p class="eyebrow">Bounded routing action · confirmation required</p>
+        <h2 id="repair-heading">Repair Routing</h2>
+        <p>Restores only missing gateway policy rules and the WARP table default after safety checks. Never restarts WARP or changes the main default.</p>
+        <p id="repair-message" role="status" aria-live="polite">Idle — no routing action requested.</p>
+      </div>
+      <button id="repair-routing" type="button">Repair Routing</button>
+    </section>
   </main>
 
   <footer>Direct access on the trusted management network · port 8788</footer>

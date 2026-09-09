@@ -11,7 +11,7 @@ const APP = fs.readFileSync(path.join(ROOT, "admin/static/admin.js"), "utf8");
 const INDEX = fs.readFileSync(path.join(ROOT, "admin/static/index.html"), "utf8");
 const INTERVAL = 15000;
 const IDS = ["run-health", "overall-state", "version", "warp", "wireguard", "routing",
-  "kill-switch", "forwarding", "monitoring", "last-refresh", "result-message"];
+  "kill-switch", "forwarding", "monitoring", "last-refresh", "result-message", "repair-routing", "repair-message"];
 
 function deferred() {
   let resolve, reject;
@@ -62,6 +62,8 @@ function result(state = "ok") {
 function page() {
   const clock = new Clock();
   const calls = [];
+  const confirmations = [];
+  let approved = true;
   const elements = Object.fromEntries(IDS.map((id) => [id, {
     textContent: "", className: "", disabled: false, handlers: {},
     addEventListener(event, callback) { this.handlers[event] = callback; },
@@ -78,11 +80,12 @@ function page() {
   vm.runInNewContext(APP, {
     document, Date: TestDate,
     window: {
+      confirm(message) { confirmations.push(message); return approved; },
       setInterval: (callback, delay) => clock.schedule(callback, delay, true),
       setTimeout: (callback, delay) => clock.schedule(callback, delay),
     },
     fetch(url, options) {
-      assert.ok(["/api/status", "/api/actions/health"].includes(url), "no mutation route may be called");
+      assert.ok(["/api/status", "/api/actions/health", "/api/actions/repair-routing"].includes(url), "only the fixed repair action may mutate");
       const response = deferred();
       const body = deferred();
       const call = { url, options, started: clock.now, response, body,
@@ -97,6 +100,9 @@ function page() {
     status: () => calls.filter((call) => call.url === "/api/status"),
     health: () => calls.filter((call) => call.url === "/api/actions/health"),
     clickHealth: () => elements["run-health"].handlers.click(),
+    repair: () => calls.filter((call) => call.url === "/api/actions/repair-routing"),
+    clickRepair: () => elements["repair-routing"].handlers.click(),
+    decline: () => { approved = false; }, confirmations,
   };
 }
 
@@ -216,10 +222,64 @@ async function testRunHealthStaysIndependent() {
   assert.equal(ui.elements["result-message"].textContent, "Health evaluation completed: unhealthy.");
 }
 
+async function testRepairConfirmationAndDoubleSubmit() {
+  const declined = page();
+  declined.decline();
+  await declined.clickRepair();
+  assert.equal(declined.repair().length, 0, "declining never POSTs");
+  assert.equal(declined.confirmations.length, 1);
+  const ui = page();
+  const pending = ui.clickRepair();
+  assert.equal(ui.repair().length, 1);
+  assert.equal(ui.elements["repair-routing"].disabled, true);
+  assert.match(ui.elements["repair-message"].textContent, /Running/);
+  await ui.clickRepair();
+  assert.equal(ui.repair().length, 1);
+  assert.equal(ui.confirmations.length, 1);
+  const call = ui.repair()[0];
+  assert.equal(call.options.method, "POST");
+  assert.equal(call.options.body, '{"confirmation":"repair-routing"}');
+  assert.equal(call.options.headers["X-CSRF-Token"], "synthetic-csrf");
+  assert.equal(call.options.headers["Content-Type"], "application/json");
+  assert.equal(call.options.credentials, "same-origin");
+  assert.equal(call.options.cache, "no-store");
+  ui.status()[0].complete();
+  await flush();
+  await ui.clock.advance(INTERVAL);
+  assert.equal(ui.status().length, 2, "Status polling remains independent and serialized");
+  assert.match(ui.elements["repair-message"].textContent, /Running/, "polling cannot overwrite action state");
+  call.complete({ ...result("degraded"), operation: "repair-routing", changed: true });
+  await pending;
+  assert.match(ui.elements["repair-message"].textContent, /restored.*verified/i);
+  assert.equal(ui.elements["repair-routing"].disabled, false);
+  await ui.clock.advance(INTERVAL);
+  assert.equal(ui.status().length, 2, "repair completion must not create another Status poll");
+}
+
+async function testRepairResultsAndFailures() {
+  for (const [code, pattern] of [[null, /already healthy.*no change/i],
+    ["mutation_lock_busy", /lock.*busy/i], ["unsafe_precondition", /unsafe.*no changes/i],
+    ["operation_timeout", /timed out.*partial/i], ["partial_mutation_failure", /failed.*partial/i],
+    ["postcondition_failed", /verification failed/i], ["helper_unavailable", /unavailable/i],
+    ["seed-private-canary", /failed/i], ["fetch", /failed/i]]) {
+    const ui = page();
+    const pending = ui.clickRepair();
+    if (code === "fetch") ui.repair()[0].response.reject(new Error("seed-private-canary"));
+    else ui.repair()[0].complete(code ? { result_code: code } : { ...result(), operation: "repair-routing" }, !code);
+    await pending;
+    assert.match(ui.elements["repair-message"].textContent, pattern);
+    assert.doesNotMatch(ui.elements["repair-message"].textContent, /seed-private-canary/);
+    assert.equal(ui.elements["repair-routing"].disabled, false);
+  }
+  assert.ok(INDEX.includes('id="repair-message" role="status" aria-live="polite"'));
+  assert.ok(!INDEX.includes('id="connect"') && !INDEX.includes('id="disconnect"'));
+}
+
 async function main() {
   for (const id of IDS) assert.ok(INDEX.includes(`id="${id}"`), `real UI must contain ${id}`);
   for (const test of [testSlowStatusNeverOverlaps, testNormalCadenceAndRendering,
-    testErrorsWaitAndNeverMultiply, testRunHealthStaysIndependent]) {
+    testErrorsWaitAndNeverMultiply, testRunHealthStaysIndependent,
+    testRepairConfirmationAndDoubleSubmit, testRepairResultsAndFailures]) {
     await test();
     console.log(`PASS ${test.name}`);
   }

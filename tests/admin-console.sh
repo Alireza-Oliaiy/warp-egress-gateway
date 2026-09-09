@@ -11,6 +11,7 @@ if ! command -v "${PYTHON3_BIN}" >/dev/null 2>&1 && [[ ! -x ${PYTHON3_BIN} ]]; t
 fi
 
 (cd "${ROOT}" && "${PYTHON3_BIN}" -B tests/admin_network_test.py && "${PYTHON3_BIN}" -B tests/admin_console_test.py)
+(cd "${ROOT}" && "${PYTHON3_BIN}" -B tests/admin_repair_test.py && "${PYTHON3_BIN}" -B tests/admin_repair_namespace_test.py)
 if command -v "${NODE_BIN}" >/dev/null 2>&1 || [[ -x ${NODE_BIN} ]]; then
   (cd "${ROOT}" && "${NODE_BIN}" tests/admin_ui_test.js)
 else
