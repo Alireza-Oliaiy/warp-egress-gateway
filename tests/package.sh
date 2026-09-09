@@ -90,7 +90,7 @@ for required in \
   docs/admin-console/SLICE_1A_HEALTH_LOCK_FOUNDATION.md \
   docs/admin-console/SLICE_1B_READ_ONLY_ADMIN_CONSOLE.md \
   tests/dashboard.sh tests/dashboard_test.py tests/dashboard_ui_test.js \
-  tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/syntax.sh \
+  tests/dashboard-deploy.sh tests/dashboard_deploy_test.py tests/dashboard_roles_test.py tests/syntax.sh \
   tests/admin-console.sh tests/admin_console_test.py tests/admin_network_test.py tests/admin_network_fixture.py tests/admin-sudoers.sh \
   tests/admin_ui_test.js \
   tests/admin-deploy.sh tests/admin_deploy_test.py tests/admin_listener_test.py \
@@ -201,6 +201,7 @@ required = {
     f'{name}/tests/dashboard.sh', f'{name}/tests/dashboard_test.py',
     f'{name}/tests/dashboard_ui_test.js', f'{name}/tests/dashboard-deploy.sh',
     f'{name}/tests/dashboard_deploy_test.py', f'{name}/tests/syntax.sh',
+    f'{name}/tests/dashboard_roles_test.py',
     f'{name}/tests/admin-console.sh', f'{name}/tests/admin_console_test.py',
     f'{name}/tests/admin_ui_test.js',
     f'{name}/tests/admin_network_test.py', f'{name}/tests/admin_network_fixture.py',
@@ -298,11 +299,28 @@ PY
   sha256sum -c "${NAME}-SHA256SUMS.txt" >/dev/null
 )
 
+"${PYTHON3_BIN}" - "${ROOT}" "${OUT}/${NAME}.tar.gz" "${OUT}/${NAME}.zip" "${NAME}" <<'PY'
+from pathlib import Path
+import sys
+import tarfile
+import zipfile
+
+root, tar_path, zip_path, name = sys.argv[1:]
+relative = 'web/dashboard/collector.py'
+expected = (Path(root) / relative).read_bytes()
+with tarfile.open(tar_path, 'r:gz') as archive:
+    assert archive.extractfile(f'{name}/{relative}').read() == expected
+with zipfile.ZipFile(zip_path) as archive:
+    assert archive.read(f'{name}/{relative}') == expected
+print('Dashboard collector TAR/ZIP source-byte provenance passed.')
+PY
+
 if [[ ${WARP_GATEWAY_PACKAGE_PAYLOAD_TESTED:-false} != true ]]; then
   # Exercise the complete isolated installer and stateful active-process
   # migration from TAR too; ZIP runs these tests through the full suite below.
   mkdir -p "${OUT}/extracted-tar"
   tar -xzf "${OUT}/${NAME}.tar.gz" -C "${OUT}/extracted-tar"
+  "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/dashboard_roles_test.py"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_deploy_test.py"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_listener_test.py"
   "${PYTHON3_BIN}" -B "${OUT}/extracted-tar/${NAME}/tests/admin_foundation_test.py"

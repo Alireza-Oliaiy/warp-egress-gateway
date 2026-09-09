@@ -27,6 +27,9 @@ STATUS_PATH = Path("/run/warp-egress-dashboard/status.json")
 VERSION_PATH = Path("/etc/warp-egress-gateway/VERSION")
 UPTIME_PATH = Path("/proc/uptime")
 MAX_FILE_BYTES = 4096
+ROLE_CONFIG_PATH = Path("/etc/warp-egress-gateway/warp-gateway.env")
+MAX_ROLE_CONFIG_BYTES = 65536
+INTERFACE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,14}", re.ASCII)
 
 
 class ObservationFailed(RuntimeError):
@@ -152,6 +155,85 @@ class CollectorRuntime:
     epoch_now: Callable[[], int] = field(default=lambda: int(time.time()))
 
 
+@dataclass(frozen=True)
+class RuntimeRoles:
+    uplink_if: str
+    transit_if: str
+    warp_if: str
+    table_id: str
+
+
+def parse_runtime_roles(raw: bytes) -> RuntimeRoles:
+    """Read four declarative values, never evaluate or retain other settings."""
+    if not 0 < len(raw) <= MAX_ROLE_CONFIG_BYTES:
+        raise ObservationFailed("gateway role configuration exceeds bound")
+    try:
+        text = raw.decode("ascii", errors="strict")
+    except UnicodeError as exc:
+        raise ObservationFailed("invalid gateway role configuration") from exc
+    required = {"UPLINK_IF", "TRANSIT_IF", "WARP_IF", "ROUTING_TABLE_ID"}
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if key.strip() not in required:
+            # Other configuration keys are deliberately ignored. Shell
+            # statements/export declarations are not a supported config form.
+            if separator and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                continue
+            raise ObservationFailed("unsupported gateway role declaration")
+        if not separator or key != key.strip() or key in values:
+            raise ObservationFailed("ambiguous gateway role declaration")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        values[key] = value
+    if set(values) != required:
+        raise ObservationFailed("missing gateway role declaration")
+    interfaces = [values[key] for key in ("UPLINK_IF", "TRANSIT_IF", "WARP_IF")]
+    if any(not INTERFACE_RE.fullmatch(value) or value == "lo" for value in interfaces) \
+            or len(set(interfaces)) != 3:
+        raise ObservationFailed("invalid or conflicting gateway interfaces")
+    table_id = values["ROUTING_TABLE_ID"]
+    if not re.fullmatch(r"[1-9][0-9]{0,9}", table_id) or int(table_id) > 4294967295:
+        raise ObservationFailed("invalid gateway routing table ID")
+    return RuntimeRoles(*interfaces, table_id)
+
+
+def load_runtime_roles() -> RuntimeRoles:
+    """Walk the fixed root-owned config path without following any symlink."""
+    descriptors: list[int] = []
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory = os.open("/", flags)
+        descriptors.append(directory)
+        for component in (None, *ROLE_CONFIG_PATH.parts[1:-1]):
+            if component is not None:
+                directory = os.open(component, flags, dir_fd=directory)
+                descriptors.append(directory)
+            metadata = os.fstat(directory)
+            if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022:
+                raise ObservationFailed("unsafe gateway configuration directory")
+        descriptor = os.open(ROLE_CONFIG_PATH.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=directory)
+        descriptors.append(descriptor)
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022
+                or not 0 < before.st_size <= MAX_ROLE_CONFIG_BYTES):
+            raise ObservationFailed("unsafe gateway configuration file")
+        raw = os.read(descriptor, MAX_ROLE_CONFIG_BYTES + 1)
+        after = os.fstat(descriptor)
+        fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_size", "st_mtime_ns", "st_ctime_ns")
+        if len(raw) != before.st_size or any(getattr(before, key) != getattr(after, key) for key in fields):
+            raise ObservationFailed("gateway configuration changed during read")
+        return parse_runtime_roles(raw)
+    except OSError as exc:
+        raise ObservationFailed("gateway role configuration unavailable") from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def _strict_json(raw: bytes) -> object:
     def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
@@ -274,19 +356,8 @@ def parse_default_route(raw: bytes, *, expected_device: str, allow_gateway: bool
     return True
 
 
-def _parse_main_default(raw: bytes) -> bool:
-    routes = _strict_json(raw)
-    if type(routes) is not list or len(routes) != 1 or type(routes[0]) is not dict:
-        return False
-    route = routes[0]
-    return (
-        route.get("dst") == "default"
-        and type(route.get("dev")) is str
-        and route.get("dev") != "warp0"
-        and route.get("type", "unicast") == "unicast"
-        and "nexthops" not in route
-        and "nhid" not in route
-    )
+def _parse_main_default(raw: bytes, *, uplink_if: str) -> bool:
+    return parse_default_route(raw, expected_device=uplink_if, allow_gateway=True)
 
 
 def _parse_interface(raw: bytes) -> str:
@@ -322,22 +393,22 @@ def _parse_warp_ipv4(raw: bytes) -> str:
     raise ObservationFailed("WARP address is missing")
 
 
-def _parse_rule_states(raw: bytes, warp_ipv4: str | None) -> tuple[str, str]:
+def _parse_rule_states(raw: bytes, warp_ipv4: str | None, *, transit_if: str, table_id: str) -> tuple[str, str]:
     try:
         lines = [line.split() for line in raw.decode("ascii", errors="strict").splitlines() if line.strip()]
     except UnicodeDecodeError as exc:
         raise ObservationFailed("rule output is malformed") from exc
     rule_100 = [tokens for tokens in lines if tokens[0] == "100:"]
     rule_110 = [tokens for tokens in lines if tokens[0] == "110:"]
-    table_names = {"100", "warp_gateway"}
+    table_names = {table_id, "warp_gateway"}
     state_100 = "unknown" if warp_ipv4 is None else (
         "ok" if len(rule_100) == 1 and len(rule_100[0]) == 5 and rule_100[0][1:4] == ["from", warp_ipv4, "lookup"] and rule_100[0][4] in table_names else "failed"
     )
-    state_110 = "ok" if len(rule_110) == 1 and len(rule_110[0]) == 7 and rule_110[0][1:6] == ["from", "all", "iif", "ens192", "lookup"] and rule_110[0][6] in table_names else "failed"
+    state_110 = "ok" if len(rule_110) == 1 and len(rule_110[0]) == 7 and rule_110[0][1:6] == ["from", "all", "iif", transit_if, "lookup"] and rule_110[0][6] in table_names else "failed"
     return state_100, state_110
 
 
-def _kill_switch_active(raw: bytes) -> bool:
+def _kill_switch_active(raw: bytes, *, transit_if: str, warp_if: str) -> bool:
     value = _strict_json(raw)
     if type(value) is not dict or set(value) != {"nftables"} or type(value["nftables"]) is not list:
         raise ObservationFailed("nft output is malformed")
@@ -363,9 +434,9 @@ def _kill_switch_active(raw: bytes) -> bool:
             meta = left.get("meta") if type(left) is dict else None
             if type(meta) is not dict:
                 continue
-            if meta.get("key") == "iifname" and match.get("op") == "==" and match.get("right") == "ens192":
+            if meta.get("key") == "iifname" and match.get("op") == "==" and match.get("right") == transit_if:
                 ingress = True
-            if meta.get("key") == "oifname" and match.get("op") == "!=" and match.get("right") == "warp0":
+            if meta.get("key") == "oifname" and match.get("op") == "!=" and match.get("right") == warp_if:
                 egress = True
         if ingress and egress and dropped:
             return True
@@ -418,6 +489,12 @@ def _trace_command(interface: str) -> tuple[str, ...]:
 
 def collect_status(runtime: CollectorRuntime | None = None) -> dict[str, object]:
     runtime = CollectorRuntime() if runtime is None else runtime
+    try:
+        roles = load_runtime_roles()
+    except ObservationFailed:
+        # No defaults and no role-dependent probes on untrusted/missing config.
+        # Independent observations can still populate a degraded/unknown sample.
+        roles = None
     now = runtime.now().astimezone(timezone.utc)
     hostname_raw = _run(runtime, ("/usr/bin/hostname", "-s"))
     hostname = hostname_raw.decode("ascii", errors="ignore").strip() if hostname_raw else "unknown"
@@ -430,23 +507,23 @@ def collect_status(runtime: CollectorRuntime | None = None) -> dict[str, object]
     except (ValueError, IndexError):
         uptime_seconds = None
 
-    interface_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "link", "show", "dev", "warp0"))
+    interface_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "link", "show", "dev", roles.warp_if)) if roles else None
     try:
         interface = _parse_interface(interface_raw) if interface_raw is not None else "unknown"
     except ObservationFailed:
         interface = "unknown"
-    address_raw = _run(runtime, ("/usr/sbin/ip", "-4", "-o", "address", "show", "dev", "warp0", "scope", "global"))
+    address_raw = _run(runtime, ("/usr/sbin/ip", "-4", "-o", "address", "show", "dev", roles.warp_if, "scope", "global")) if roles else None
     try:
         warp_ipv4 = _parse_warp_ipv4(address_raw) if address_raw is not None else None
     except ObservationFailed:
         warp_ipv4 = None
-    handshake_raw = _run(runtime, ("/usr/bin/wg", "show", "warp0", "latest-handshakes"))
+    handshake_raw = _run(runtime, ("/usr/bin/wg", "show", roles.warp_if, "latest-handshakes")) if roles else None
     try:
         handshake_age = parse_handshake_age(handshake_raw, now_epoch=runtime.epoch_now()) if handshake_raw is not None else None
     except ObservationFailed:
         handshake_age = None
 
-    direct_raw = _run(runtime, _trace_command("ens160"))
+    direct_raw = _run(runtime, _trace_command(roles.uplink_if)) if roles else None
     warp_raw = _run(runtime, _trace_command(warp_ipv4)) if warp_ipv4 else None
     try:
         direct_trace = parse_trace(direct_raw) if direct_raw is not None else None
@@ -465,25 +542,25 @@ def collect_status(runtime: CollectorRuntime | None = None) -> dict[str, object]
     else:
         warp_state = "unknown"
 
-    rules_raw = _run(runtime, ("/usr/sbin/ip", "-4", "rule", "show"))
+    rules_raw = _run(runtime, ("/usr/sbin/ip", "-4", "rule", "show")) if roles else None
     try:
-        rule_100, rule_110 = _parse_rule_states(rules_raw, warp_ipv4) if rules_raw is not None else ("unknown", "unknown")
+        rule_100, rule_110 = _parse_rule_states(rules_raw, warp_ipv4, transit_if=roles.transit_if, table_id=roles.table_id) if rules_raw is not None and roles else ("unknown", "unknown")
     except ObservationFailed:
         rule_100 = rule_110 = "unknown"
-    table_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", "100", "default"))
+    table_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", roles.table_id, "default")) if roles else None
     try:
-        table_100 = "ok" if table_raw is not None and parse_default_route(table_raw, expected_device="warp0", allow_gateway=False) else ("unknown" if table_raw is None else "failed")
+        table_100 = "ok" if table_raw is not None and roles and parse_default_route(table_raw, expected_device=roles.warp_if, allow_gateway=False) else ("unknown" if table_raw is None else "failed")
     except ObservationFailed:
         table_100 = "unknown"
-    main_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", "main", "default"))
+    main_raw = _run(runtime, ("/usr/sbin/ip", "-j", "-4", "route", "show", "table", "main", "default")) if roles else None
     try:
-        main_default = "ok" if main_raw is not None and _parse_main_default(main_raw) else ("unknown" if main_raw is None else "failed")
+        main_default = "ok" if main_raw is not None and roles and _parse_main_default(main_raw, uplink_if=roles.uplink_if) else ("unknown" if main_raw is None else "failed")
     except ObservationFailed:
         main_default = "unknown"
 
-    nft_raw = _run(runtime, ("/usr/sbin/nft", "-j", "list", "table", "inet", "warp_gateway"))
+    nft_raw = _run(runtime, ("/usr/sbin/nft", "-j", "list", "table", "inet", "warp_gateway")) if roles else None
     try:
-        kill_switch = "active" if nft_raw is not None and _kill_switch_active(nft_raw) else ("unknown" if nft_raw is None else "inactive")
+        kill_switch = "active" if nft_raw is not None and roles and _kill_switch_active(nft_raw, transit_if=roles.transit_if, warp_if=roles.warp_if) else ("unknown" if nft_raw is None else "inactive")
     except ObservationFailed:
         kill_switch = "unknown"
     forwarding_raw = _run(runtime, ("/usr/sbin/sysctl", "-n", "net.ipv4.ip_forward"))

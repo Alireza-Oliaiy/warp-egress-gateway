@@ -194,6 +194,16 @@ def collector_outputs() -> dict[tuple[str, ...], bytes | Exception]:
 
 
 class CollectorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from web.dashboard.collector import parse_runtime_roles
+
+        # Existing observation fixtures represent CC. Config trust/ownership
+        # and HQ/custom-role integration are exercised in dashboard_roles_test.
+        roles = parse_runtime_roles(b'UPLINK_IF="ens160"\nTRANSIT_IF="ens192"\nWARP_IF="warp0"\nROUTING_TABLE_ID="100"\n')
+        patcher = mock.patch("web.dashboard.collector.load_runtime_roles", return_value=roles)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_production_version_path_uses_native_install_contract(self) -> None:
         from web.dashboard.collector import CollectorRuntime, VERSION_PATH
 
