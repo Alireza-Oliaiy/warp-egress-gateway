@@ -105,11 +105,11 @@ except ImportError:  # pragma: no cover - exercised by installed-script fixtures
     )
 
 
-READONLY_BUNDLE = Path("/opt/warp-egress-admin-console/readonly/v1")
+READONLY_BUNDLE = Path("/opt/warp-egress-admin-console/readonly/v2")
 HEALTH_READONLY_PATH = str(READONLY_BUNDLE / "evaluate.py")
 READONLY_FILES = (
     "evaluate.py", "health-readonly.sh", "common.sh", "routing.sh", "admin-lock.sh",
-    "healthcheck-lib.sh", "observation-entrypoints.sh",
+    "healthcheck-lib.sh", "observation-entrypoints.sh", "intent-state.sh", "intent-state.py",
 )
 GATEWAY_CONFIG = Path("/etc/warp-egress-gateway/warp-gateway.env")
 VERSION_PATH = Path("/etc/warp-egress-gateway/VERSION")
@@ -774,17 +774,24 @@ def parse_health_output(raw: bytes) -> dict[str, str]:
         values[key] = value
     if set(values) != _HEALTH_KEYS:
         raise HelperRuntimeError("observation_unavailable")
-    if values["EVALUATION"] != "completed" or values["HEALTH"] not in {"OK", "FAIL"}:
+    if values["EVALUATION"] != "completed" or values["HEALTH"] not in {"OK", "FAIL", "INTENTIONALLY_DISCONNECTED"}:
         raise HelperRuntimeError("observation_unavailable")
     if values["wg"] not in {"up", "down"}:
         raise HelperRuntimeError("observation_unavailable")
-    if values["direct"] not in {"ok", "fail"} or values["warp"] not in {"on", "fail"}:
+    if values["direct"] not in {"ok", "fail"} or values["warp"] not in {"on", "off", "fail"}:
         raise HelperRuntimeError("observation_unavailable")
     if values["nft"] not in {"ok", "fail"} or values["upstream"] not in {"ok", "fail", "skip"}:
         raise HelperRuntimeError("observation_unavailable")
     if values["services"] not in {"ok", "fail"} or values["timers"] not in {"ok", "fail"}:
         raise HelperRuntimeError("observation_unavailable")
     if values["recovery"] != "none":
+        raise HelperRuntimeError("observation_unavailable")
+    if values["HEALTH"] == "INTENTIONALLY_DISCONNECTED" and not (
+        values["reason"] == "intentionally_disconnected" and values["wg"] == "down"
+        and values["route"] == "absent" and values["warp"] == "off" and values["nft"] == "ok"
+        and values["direct"] == "ok" and values["upstream"] != "fail"
+        and values["services"] == "ok" and values["timers"] == "ok"
+    ):
         raise HelperRuntimeError("observation_unavailable")
     if values["HEALTH"] == "OK" and not (
         values["wg"] == "up"
@@ -807,7 +814,10 @@ def _response_from_observation(
     version: str,
 ) -> dict[str, object]:
     healthy = observation["HEALTH"] == "OK"
+    disconnected = observation["HEALTH"] == "INTENTIONALLY_DISCONNECTED"
     route_state = "ok" if observation["route"] == "ok" else "failed"
+    if disconnected:
+        route_state = "absent"
     monitoring = (
         "ok"
         if observation["services"] == "ok"
@@ -821,7 +831,7 @@ def _response_from_observation(
         "handshake": "unknown",
         "handshake_age_seconds": None,
         "direct": "ok" if observation["direct"] == "ok" else "failed",
-        "warp": "on" if observation["warp"] == "on" else "failed",
+        "warp": "off" if disconnected else ("on" if observation["warp"] == "on" else "failed"),
         "routing": route_state,
         "kill_switch": "active" if observation["nft"] == "ok" else "inactive",
         "forwarding": "unknown",
@@ -834,9 +844,9 @@ def _response_from_observation(
             "request_id": request["request_id"],
             "operation": request["operation"],
             "ok": True,
-            "result_code": "ok" if healthy else "evaluation_unhealthy",
+            "result_code": "ok" if healthy or disconnected else "evaluation_unhealthy",
             "changed": False,
-            "state": "ok" if healthy else "failed",
+            "state": "intentionally_disconnected" if disconnected else ("ok" if healthy else "failed"),
             "evidence": evidence,
         }
     )

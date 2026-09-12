@@ -18,6 +18,7 @@ healthcheck_probe_direct() {
   timeout=${HEALTHCHECK_TIMEOUT:-15}
   url=${HEALTHCHECK_URL:-https://www.cloudflare.com/cdn-cgi/trace}
   DIRECT_RC=none
+  DIRECT_WARP_STATE=unknown
 
   if ! uplink_ip=$(ip -4 -o address show dev "${UPLINK_IF}" scope global 2>/dev/null \
     | awk 'NR==1 {split($4,a,"/"); print a[1]}'); then
@@ -29,6 +30,7 @@ healthcheck_probe_direct() {
     --interface "${uplink_ip}" --connect-timeout "${timeout}" \
     --max-time "${timeout}" "${url}" 2>/dev/null); then
     DIRECT_RC=0
+    if grep -qx 'warp=off' <<<"${output}"; then DIRECT_WARP_STATE=off; fi
     grep -q '^ip=' <<<"${output}"
   else
     DIRECT_RC=$?
@@ -83,6 +85,9 @@ healthcheck_is_healthy() {
 }
 
 healthcheck_reset_state() {
+  INTENT_STATE=absent
+  INTENT_MATCH=false
+  DIRECT_WARP_STATE=unknown
   WG_STATE=down
   DIRECT_STATE=fail
   DIRECT_RC=none
@@ -97,6 +102,21 @@ healthcheck_reset_state() {
 # appropriate shared or exclusive lock before entering this function.
 healthcheck_observe_locked() {
   healthcheck_reset_state
+
+  INTENT_STATE=$(intent_state_locked) || INTENT_STATE=unsafe
+  if [[ ${INTENT_STATE} != absent ]]; then
+    if [[ ${INTENT_STATE} == valid ]] && intent_disconnected_locked; then
+      INTENT_MATCH=true
+      WG_STATE=down
+      ROUTE_STATE=absent
+      NFT_STATE=ok
+      WARP_STATE=off
+      if healthcheck_probe_direct && [[ ${DIRECT_WARP_STATE} == off ]]; then
+        DIRECT_STATE=ok
+      fi
+    fi
+    return 0
+  fi
 
   if healthcheck_wireguard_ready; then
     WG_STATE=up
@@ -140,6 +160,13 @@ healthcheck_observe_upstream_locked() {
 healthcheck_observe_units_locked() {
   SERVICE_STATE=fail
   TIMER_STATE=fail
+
+  if [[ ${INTENT_MATCH:-false} == true ]]; then
+    # The intent observer already proved WARP/routing units are stopped.
+    if systemctl is-active --quiet warp-gateway-firewall.service; then SERVICE_STATE=ok; fi
+    if systemctl is-active --quiet warp-gateway-healthcheck.timer warp-monitor.timer; then TIMER_STATE=ok; fi
+    return 0
+  fi
 
   if systemctl is-active --quiet \
     warp-gateway-firewall.service \
@@ -188,6 +215,15 @@ healthcheck_readonly_evaluate_locked() {
     health=OK
     reason=none
   fi
+  if [[ ${INTENT_STATE} != absent ]]; then
+    reason=intent_unsafe
+    if [[ ${INTENT_STATE} == valid ]]; then reason=intent_mismatch; fi
+    if [[ ${INTENT_MATCH} == true && ${DIRECT_STATE} == ok \
+        && ${SERVICE_STATE} == ok && ${TIMER_STATE} == ok && ${UPSTREAM_STATE} != fail ]]; then
+      health=INTENTIONALLY_DISCONNECTED
+      reason=intentionally_disconnected
+    fi
+  fi
 
   printf 'EVALUATION=completed HEALTH=%s reason=%s wg=%s direct=%s direct_rc=%s warp=%s warp_rc=%s route=%s nft=%s upstream=%s services=%s timers=%s recovery=none\n' \
     "${health}" "${reason}" "${WG_STATE}" "${DIRECT_STATE}" "${DIRECT_RC}" \
@@ -197,6 +233,7 @@ healthcheck_readonly_evaluate_locked() {
 }
 
 healthcheck_policy_repair_transaction_locked() {
+  intent_require_absent_locked || return 1
   if policy_routing_repair_locked; then
     ROUTE_STATE=$(policy_routing_status)
     if [[ ${ROUTE_STATE} == ok ]]; then
@@ -209,6 +246,7 @@ healthcheck_policy_repair_transaction_locked() {
 }
 
 healthcheck_tunnel_finalize_locked() {
+  intent_require_absent_locked || return 1
   local warp_ipv4
 
   if ! healthcheck_wireguard_ready; then
@@ -237,6 +275,15 @@ healthcheck_run() {
     return 1
   fi
 
+  if [[ ${INTENT_STATE} != absent ]]; then
+    if [[ ${INTENT_MATCH} == true && ${DIRECT_STATE} == ok ]]; then
+      healthcheck_emit INTENTIONALLY_DISCONNECTED intentionally_disconnected
+      return 0
+    fi
+    healthcheck_emit FAIL intent_unsafe_or_mismatch
+    return 1
+  fi
+
   # Project-owned policy routing is safe to restore independently of
   # AUTO_RECOVER, but only while WireGuard and the fail-closed guard are ready.
   if [[ ${ROUTE_STATE} != ok && ${WG_STATE} == up && ${NFT_STATE} == ok ]]; then
@@ -252,7 +299,12 @@ healthcheck_run() {
   # kill-switch, or unresolved policy failures cannot trigger it.
   if [[ ${auto_recover} == true && ${DIRECT_STATE} == ok && ${NFT_STATE} == ok ]] &&
     { [[ ${WG_STATE} != up ]] || [[ ${ROUTE_STATE} == ok && ${WARP_STATE} != on ]]; }; then
-    if systemctl restart "wg-quick@${WARP_IF}.service"; then
+    # Recheck after the earlier observation/repair. The systemd ExecStop and
+    # ExecStart wrappers independently check again under their own same-inode
+    # exclusive lock, closing the decision-to-dispatch race without nesting
+    # flock across systemctl (which would deadlock its unit callbacks).
+    if admin_lock_run_exclusive intent_require_absent_locked \
+      && systemctl restart "wg-quick@${WARP_IF}.service"; then
       sleep 3
       admin_lock_run_exclusive healthcheck_tunnel_finalize_locked || true
     fi

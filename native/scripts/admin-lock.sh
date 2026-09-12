@@ -124,6 +124,10 @@ admin_lock_run_at() {
     return "${flock_rc}"
   fi
 
+  # Internal dynamic scope, not exported or accepted from a caller environment.
+  # Intent primitives reuse this exact open-file-description without re-locking.
+  # shellcheck disable=SC2034 # consumed by the dynamically scoped intent callback
+  local ADMIN_LOCK_HELD_FD=${lock_fd} ADMIN_LOCK_HELD_PARENT=${parent}
   "$@" || callback_rc=$?
   flock -u "${lock_fd}" || unlock_rc=$?
   exec {lock_fd}>&-

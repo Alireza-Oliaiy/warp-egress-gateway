@@ -5,6 +5,10 @@ if ! declare -F policy_routing_status >/dev/null 2>&1; then
   # shellcheck source=routing.sh
   source "${MONITOR_LIB_DIR}/routing.sh"
 fi
+if ! declare -F healthcheck_observe_locked >/dev/null 2>&1; then
+  # shellcheck source=healthcheck-lib.sh
+  source "${MONITOR_LIB_DIR}/healthcheck-lib.sh"
+fi
 
 monitor_status() {
   if [[ ${WG_STATE} != up ]] ||
@@ -24,6 +28,18 @@ monitor_status() {
 }
 
 monitor_sample() {
+  local intent_state
+  intent_state=$(intent_state_locked) || intent_state=unsafe
+  if [[ ${intent_state} != absent ]]; then
+    # Same shared lock and isolated no-recovery evaluator as Admin Status/Health.
+    local observation
+    observation=$(healthcheck_readonly_evaluate_locked) || {
+      printf 'STATUS=FAIL reason=intent_observation_unavailable\n'
+      return 0
+    }
+    printf 'STATUS=%s\n' "${observation#* HEALTH=}"
+    return 0
+  fi
   local now handshake_warn_sec curl_timeout url
   local wg_state handshake_state handshake_age last_handshake
   local direct_state direct_rc direct_ip direct_output uplink_ip

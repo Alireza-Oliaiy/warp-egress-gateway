@@ -45,6 +45,11 @@ fi
 
 case ${MODE} in
   native)
+    # A rollback may restore an older Core that cannot understand intent. Refuse
+    # before copying any backup bytes; never discard intent or reconnect through
+    # an older implementation. Missing installed coordination also fails closed.
+    bash /usr/local/lib/warp-egress-gateway/intent-check.sh \
+      || die 'Rollback refused: lifecycle intent unavailable or present.'
     [[ -d ${BACKUP_DIR}/rootfs ]] || die "Native rootfs backup is missing."
     systemctl stop warp-gateway-healthcheck.timer warp-monitor.timer 2>/dev/null || true
     systemctl stop warp-gateway.service 2>/dev/null || true

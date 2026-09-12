@@ -24,6 +24,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ ${EUID} -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
+bash "${REPO_DIR}/scripts/intent-check.sh" || {
+  echo 'Installation refused: lifecycle intent unavailable or present.' >&2
+  exit 1
+}
 [[ -r ${CONFIG_SOURCE} ]] || {
   echo "Configuration not found: ${CONFIG_SOURCE}" >&2
   echo "Copy config/warp-gateway.env.example to config/warp-gateway.env and edit it." >&2
@@ -94,6 +98,7 @@ systemctl restart systemd-journald
 log "Installing project scripts."
 install -d -m 755 "${LIB_DIR}"
 install -m 755 "${REPO_DIR}"/scripts/*.sh "${LIB_DIR}/"
+install -m 644 "${REPO_DIR}/scripts/intent-state.py" "${LIB_DIR}/intent-state.py"
 install -m 755 "${REPO_DIR}/scripts/warp-gateway" /usr/local/sbin/warp-gateway
 install -m 755 "${REPO_DIR}/../shared/upgrade/remote-upgrade.sh" /usr/local/sbin/warp-gateway-upgrade
 install -m 755 "${REPO_DIR}/../rollback.sh" /usr/local/sbin/warp-gateway-rollback

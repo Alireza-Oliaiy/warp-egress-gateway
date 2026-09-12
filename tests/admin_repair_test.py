@@ -323,6 +323,20 @@ class RepairSafetyTests(unittest.TestCase):
         self.assertEqual(self.execute()["result_code"], "unsafe_precondition")
         self.assertEqual(self.kernel.writes, [])
 
+    def test_valid_atomic_intent_refuses_repair_and_preserves_evidence(self):
+        from intent_state_test import intent, MAIN
+        fd = os.open(self.lock, os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            intent.IntentStore(root=self.root, uid=self.uid, gid=self.gid).create(fd, REQUEST_ID, MAIN)
+        finally:
+            os.close(fd)
+        path = self.lock.parent / "intentional-disconnect.json"
+        before = path.read_bytes()
+        self.assertEqual(self.execute()["result_code"], "unsafe_precondition")
+        self.assertEqual(self.kernel.writes, [])
+        self.assertEqual(path.read_bytes(), before)
+
     def test_postconditions_detect_missing_write_and_unrelated_state_changes(self):
         changes = [lambda k: k.routes[1].update(gateway="192.0.2.1"), lambda k: k.routes[2].update(dev="ens160"),
                    lambda k: k.rules[0].update(table=254), lambda k: k.addresses["ens160"][0]["addr_info"][0].update(local="172.21.31.6"),

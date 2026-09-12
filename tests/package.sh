@@ -33,12 +33,13 @@ for relative in ('admin/deploy/systemd/warp-admin.service',
         assert (member.external_attr >> 16) & 0o170777 == 0o100644
         assert archive.read(member) == expected
 print('Admin unit/tmpfiles TAR/ZIP provenance and modes passed.')
-# All seven isolated bundle inputs must survive packaging coherently. The
-# installer assembles them under Admin readonly/v1, never the host native tree.
+# All isolated bundle inputs must survive packaging coherently. The
+# installer assembles them under Admin readonly/v2, never the host native tree.
 inputs = {'admin/deploy/readonly/evaluate.py': 0o644}
 inputs.update({f'native/scripts/{file}': 0o755 for file in (
     'health-readonly.sh', 'common.sh', 'routing.sh', 'admin-lock.sh',
-    'healthcheck-lib.sh', 'observation-entrypoints.sh')})
+    'healthcheck-lib.sh', 'observation-entrypoints.sh', 'intent-state.sh')})
+inputs['native/scripts/intent-state.py'] = 0o644
 for relative, mode in inputs.items():
     expected = (root / relative).read_bytes()
     with tarfile.open(out / f'{name}.tar.gz') as archive:
@@ -49,7 +50,7 @@ for relative, mode in inputs.items():
         member = archive.getinfo(f'{name}/{relative}')
         assert (member.external_attr >> 16) & 0o170777 == 0o100000 | mode, relative
         assert archive.read(member) == expected, relative
-print('Complete Admin readonly/v1 bundle inputs: TAR/ZIP bytes and modes passed.')
+print('Complete Admin readonly/v2 bundle inputs: TAR/ZIP bytes and modes passed.')
 PY
 grep -q 'PACKAGE_PAYLOAD_TESTED' "${ROOT}/tests/package.sh" || {
   echo "Package validation must run the extracted payload suite exactly once." >&2; exit 1;

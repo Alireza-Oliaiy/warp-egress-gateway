@@ -404,7 +404,7 @@ class HelperTests(unittest.TestCase):
     def test_runner_invokes_only_fixed_health_readonly_entrypoint(self) -> None:
         from admin import helper
 
-        expected = ("/opt/warp-egress-admin-console/readonly/v1/evaluate.py",)
+        expected = ("/opt/warp-egress-admin-console/readonly/v2/evaluate.py",)
         with mock.patch.object(helper, "validate_readonly_metadata", return_value=True) as metadata, \
                 mock.patch.object(helper, "_bounded_process", return_value=CommandResult(0, HEALTHY_LINE, b"")) as run:
             helper.HealthReadonlyRunner().run()

@@ -64,6 +64,10 @@ run_monitor_decision_cases() {
   local case_name expected actual
   # shellcheck source=../native/scripts/monitor-lib.sh
   source "${MONITOR_LIB}"
+
+  # This probe-only fixture deliberately calls the internal sample directly;
+  # real shared-lock/intent integration is exercised by intent-recovery.sh.
+  intent_state_locked() { printf 'absent\n'; }
   for case_name in \
     'fresh:OK:up:ok:ok:on:ok:ok:ok' \
     'stale_dataplane_healthy:WARN:up:stale:ok:on:ok:ok:ok' \

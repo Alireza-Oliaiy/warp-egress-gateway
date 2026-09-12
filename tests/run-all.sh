@@ -24,6 +24,7 @@ tests=(
   health-readonly.sh
   observation-locking.sh
   writer-locking.sh
+  intent-recovery.sh
   policy-recovery.sh
   monitoring.sh
   dashboard.sh

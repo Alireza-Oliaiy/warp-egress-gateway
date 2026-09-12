@@ -29,10 +29,10 @@ from admin import helper as source_helper
 from admin.protocol import encode_request
 from admin_console_test import open_session, request, running_server
 
-BUNDLE_PATH = "/opt/warp-egress-admin-console/readonly/v1"
+BUNDLE_PATH = "/opt/warp-egress-admin-console/readonly/v2"
 LAUNCHER_PATH = BUNDLE_PATH + "/evaluate.py"
 SHELL_FILES = ("health-readonly.sh", "common.sh", "routing.sh", "admin-lock.sh",
-               "healthcheck-lib.sh", "observation-entrypoints.sh")
+               "healthcheck-lib.sh", "observation-entrypoints.sh", "intent-state.sh", "intent-state.py")
 FILES = ("evaluate.py", *SHELL_FILES)
 RELEASED_SHA256 = {
     "routing.sh": "c621a8884c225b555a5a2374af2c6fda452339d79a27c904cc05e914822ea547",
@@ -421,7 +421,7 @@ class AdminFoundationTests(unittest.TestCase):
         # Exercise a real failing install command in the isolated TEST_MODE path.
         stub = self.probes / "install"
         stub.write_text('#!/bin/bash\nfor arg in "$@"; do\n'
-                        'case "$arg" in */.v1.*/healthcheck-lib.sh.tmp.*) exit 91;; esac\ndone\n'
+                        'case "$arg" in */.v2.*/healthcheck-lib.sh.tmp.*) exit 91;; esac\ndone\n'
                         'exec /usr/bin/install "$@"\n')
         stub.chmod(0o755)
         self.env["PATH"] = str(self.probes) + ":" + os.environ["PATH"]

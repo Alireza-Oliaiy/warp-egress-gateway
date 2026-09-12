@@ -152,6 +152,7 @@ confirm_upgrade() {
 }
 
 rollback_native() {
+  bash "${ROOT_DIR}/native/scripts/intent-check.sh" || die 'Rollback refused: lifecycle intent unavailable or present.'
   warn "Post-upgrade validation failed. Restoring Native backup ${BACKUP_DIR}."
   systemctl stop warp-gateway-healthcheck.timer warp-monitor.timer 2>/dev/null || true
   systemctl stop warp-gateway.service 2>/dev/null || true
@@ -177,6 +178,7 @@ rollback_native() {
 }
 
 upgrade_native() {
+  bash "${ROOT_DIR}/native/scripts/intent-check.sh" || die 'Upgrade refused: lifecycle intent unavailable or present.'
   local config=/etc/warp-egress-gateway/warp-gateway.env current_version temp_config profile
   current_version=$(installed_version /etc/warp-egress-gateway/VERSION)
   # shellcheck disable=SC1090

@@ -14,6 +14,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ ${EUID} -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+bash "${SCRIPT_DIR}/scripts/intent-check.sh" || {
+  echo 'Uninstall refused: lifecycle intent unavailable or present.' >&2
+  exit 1
+}
 CONFIG_FILE=/etc/warp-egress-gateway/warp-gateway.env
 if [[ -r ${CONFIG_FILE} ]]; then
   # shellcheck disable=SC1090

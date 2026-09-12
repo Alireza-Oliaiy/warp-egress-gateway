@@ -10,6 +10,11 @@ if ! declare -F admin_lock_run_exclusive >/dev/null 2>&1; then
   source "${ROUTING_SCRIPT_DIR}/admin-lock.sh"
 fi
 
+if ! declare -F intent_require_absent_locked >/dev/null 2>&1; then
+  # shellcheck source=intent-state.sh
+  source "${ROUTING_SCRIPT_DIR}/intent-state.sh"
+fi
+
 routing_diagnostic() {
   if declare -F warn >/dev/null 2>&1; then
     warn "$*"
@@ -122,6 +127,7 @@ kill_switch_active() {
 }
 
 policy_routing_apply_locked() {
+  intent_require_absent_locked || return 1
   local warp_ipv4=${1:-} state
   if [[ -z ${warp_ipv4} ]]; then
     warp_ipv4=$(warp_ipv4_address) || {
@@ -145,6 +151,7 @@ policy_routing_apply_locked() {
 }
 
 policy_routing_repair_locked() {
+  intent_require_absent_locked || return 1
   local state warp_ipv4
 
   ip link show "${WARP_IF}" >/dev/null 2>&1 || {

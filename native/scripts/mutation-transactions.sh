@@ -11,6 +11,7 @@ if ! declare -F policy_routing_apply_locked >/dev/null 2>&1; then
 fi
 
 route_up_transaction_locked() {
+  intent_require_absent_locked || return 1
   local warp_ipv4
 
   ip link show "${WARP_IF}" >/dev/null 2>&1 || {
@@ -27,6 +28,7 @@ route_up_transaction_locked() {
 }
 
 route_down_transaction_locked() {
+  intent_require_absent_locked || return 1
   remove_rule_priority "${INGRESS_RULE_PRIORITY}"
   remove_rule_priority "${SOURCE_RULE_PRIORITY}"
   ip -4 route flush table "${ROUTING_TABLE_ID}" 2>/dev/null || true
@@ -38,6 +40,7 @@ route_down_transaction_locked() {
 }
 
 route_repair_transaction_locked() {
+  intent_require_absent_locked || return 1
   local before after
 
   before=$(policy_routing_status)
@@ -59,6 +62,7 @@ route_repair_transaction_locked() {
 }
 
 firewall_apply_transaction_locked() {
+  intent_require_absent_locked || return 1
   local tcp_mss=${TCP_MSS:-1240}
 
   nft -f - <<EOF_NFT
@@ -109,6 +113,7 @@ EOF_NFT
 }
 
 firewall_remove_transaction_locked() {
+  intent_require_absent_locked || return 1
   nft delete table inet "${NFT_TABLE}" 2>/dev/null || true
   log "Removed nftables table inet ${NFT_TABLE}."
 }
@@ -123,6 +128,7 @@ wg_quick_reload_command_locked() {
 }
 
 wg_quick_transaction_locked() {
+  intent_require_absent_locked || return 1
   local action=$1
   local interface=$2
 

@@ -163,7 +163,7 @@ def validate_evidence(value: object) -> dict[str, object]:
         raise ProtocolError("evidence.handshake_age_seconds is invalid")
     _enum(value["direct"], frozenset({"ok", "failed", "unknown"}), "evidence.direct")
     _enum(value["warp"], frozenset({"on", "off", "failed", "unknown"}), "evidence.warp")
-    _enum(value["routing"], frozenset({"ok", "failed", "unknown"}), "evidence.routing")
+    _enum(value["routing"], frozenset({"ok", "absent", "failed", "unknown"}), "evidence.routing")
     _enum(value["kill_switch"], frozenset({"active", "inactive", "unknown"}), "evidence.kill_switch")
     _enum(value["forwarding"], frozenset({"enabled", "disabled", "unknown"}), "evidence.forwarding")
     _enum(value["monitoring"], frozenset({"ok", "failed", "unknown"}), "evidence.monitoring")
@@ -192,7 +192,7 @@ def validate_response(value: object) -> dict[str, object]:
     state = _enum(value["state"], STATES, "response.state")
     evidence = validate_evidence(value["evidence"])
     if result_code == "ok":
-        if value["ok"] is not True or state not in ({"ok", "degraded"} if repair else {"ok"}):
+        if value["ok"] is not True or state not in ({"ok", "degraded"} if repair else {"ok", "intentionally_disconnected"}):
             raise ProtocolError("successful response fields are inconsistent")
         required_healthy = {
             "wireguard": "up",
@@ -204,6 +204,9 @@ def validate_response(value: object) -> dict[str, object]:
         }
         if repair and state == "degraded":
             required_healthy = {"wireguard": "up", "routing": "ok", "kill_switch": "active"}
+        if not repair and state == "intentionally_disconnected":
+            required_healthy = {"wireguard": "down", "routing": "absent", "kill_switch": "active",
+                                "warp": "off", "direct": "ok", "monitoring": "ok"}
         if any(evidence[key] != expected for key, expected in required_healthy.items()):
             raise ProtocolError("ok state lacks required dataplane evidence")
     elif result_code == "evaluation_unhealthy":
