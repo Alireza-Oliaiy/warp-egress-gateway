@@ -45,7 +45,7 @@ APP_BASE=$(root_path /opt/warp-egress-admin-console)
 APP_ROOT=${APP_BASE}/app
 ADMIN_APP=${APP_ROOT}/admin
 READONLY_PARENT=${APP_BASE}/readonly
-READONLY_BUNDLE=${READONLY_PARENT}/v2
+READONLY_BUNDLE=${READONLY_PARENT}/v3
 readonly_files=(evaluate.py health-readonly.sh common.sh routing.sh admin-lock.sh healthcheck-lib.sh observation-entrypoints.sh intent-state.sh intent-state.py)
 RUNTIME_DIR=$(root_path /run/warp-egress-admin-console)
 SHARED_RUNTIME_DIR=$(root_path /run/warp-egress-gateway)
@@ -540,7 +540,7 @@ install_directory 0755 "${ADMIN_APP}"
 # it. Reinstall reuses an identical safe bundle; changed versions need a new ID.
 install_directory 0755 "${READONLY_PARENT}"
 if [[ ! -e ${READONLY_BUNDLE} ]]; then
-  foundation_temporary=$(mktemp -d "${READONLY_PARENT}/.v2.XXXXXXXX")
+  foundation_temporary=$(mktemp -d "${READONLY_PARENT}/.v3.XXXXXXXX")
   for name in "${readonly_files[@]}"; do
     mode=0644
     if [[ ${name} == evaluate.py ]]; then mode=0755; fi

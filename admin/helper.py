@@ -105,7 +105,7 @@ except ImportError:  # pragma: no cover - exercised by installed-script fixtures
     )
 
 
-READONLY_BUNDLE = Path("/opt/warp-egress-admin-console/readonly/v2")
+READONLY_BUNDLE = Path("/opt/warp-egress-admin-console/readonly/v3")
 HEALTH_READONLY_PATH = str(READONLY_BUNDLE / "evaluate.py")
 READONLY_FILES = (
     "evaluate.py", "health-readonly.sh", "common.sh", "routing.sh", "admin-lock.sh",

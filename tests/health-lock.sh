@@ -145,4 +145,6 @@ expect_rc 73 admin_lock_run_at shared "${LOCK_PARENT}" "${LOCK_PATH}" \
 [[ ! -e ${TEST_ROOT}/unsafe-parent-target/admin-mutation.lock ]] ||
   fail "parent symlink was followed"
 
+"${WARP_GATEWAY_PYTHON3:-python3}" -B "${ROOT}/tests/admin_lock_creation_test.py"
+
 echo "HEALTH_LOCK_TESTS_PASSED"

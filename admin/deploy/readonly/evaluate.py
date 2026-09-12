@@ -15,7 +15,7 @@ def main() -> int:
     os.execve(
         "/usr/bin/bash",
         ("/usr/bin/bash", "--noprofile", "--norc",
-         "/opt/warp-egress-admin-console/readonly/v2/health-readonly.sh"),
+         "/opt/warp-egress-admin-console/readonly/v3/health-readonly.sh"),
         {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LANG": "C", "LC_ALL": "C"},
     )
     return 70  # execve never returns on success

@@ -36,8 +36,10 @@ admin_lock_prepare_at() {
     return "${ADMIN_LOCK_METADATA_RC}"
   fi
   if [[ ! -e ${parent} ]]; then
-    (umask 077; mkdir -m 0700 -- "${parent}") ||
-      return "${ADMIN_LOCK_METADATA_RC}"
+    # Another root boot-time creator (for example tmpfiles) may win after the
+    # absence check. Creation status is not authority: always validate the
+    # resulting object below, without repairing or following an unsafe winner.
+    (umask 077; mkdir -m 0700 -- "${parent}") 2>/dev/null || true
   fi
   [[ -d ${parent} && ! -L ${parent} ]] || return "${ADMIN_LOCK_METADATA_RC}"
 

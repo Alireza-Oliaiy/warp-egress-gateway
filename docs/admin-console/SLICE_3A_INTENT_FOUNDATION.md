@@ -73,7 +73,7 @@ review gate, not an action provided here.
 
 ## Read-only state semantics
 
-The installed Admin evaluator uses a new immutable `readonly/v2` bundle; it
+The installed Admin evaluator uses an immutable `readonly/v3` bundle; it
 never rewrites an installed v1 bundle or imports mutable native Core files.
 The bundle includes the same intent reader and isolated shell evaluator.
 
@@ -101,6 +101,31 @@ Intent is deliberately volatile. Real reboot removes `/run` intent naturally;
 the established sysctl -> guard -> forwarding -> network-pre -> WireGuard ->
 policy-routing startup resumes with no persistent `/etc` or `/var` intent.
 No automatic expiry, repair, deletion or reconnect is implemented.
+
+## CC real-reboot creation-race correction
+
+CC qualification found an absence-check/`mkdir` race with another legitimate
+root boot-time creator such as tmpfiles. A losing `mkdir` previously returned
+metadata RC 73 even when the winner was a correct root:root 0700 directory.
+The guard failed safely, preventing dependent WARP/routing startup.
+
+Parent creation is now best-effort followed by mandatory validation of the
+final path: directory, not a symlink, root:root, exactly 0700. A missing or unsafe
+result still returns RC 73; no chmod/chown repair, sleep or ordering workaround
+is used. Lock-file O_EXCL creation already followed this pattern; its regular
+file, non-symlink, root:root 0600 and path/open-fd same-inode checks are retained.
+
+The corrected library is also an input to Admin's immutable read-only bundle.
+The internal bundle ID advances from v2 to v3 so a subsequent Admin install can
+publish the corrected bundle without rewriting the previous version. This does
+not change the API, operations, listener, sudoers, capabilities or project
+VERSION. Existing installed bundles are not patched in place.
+
+Deterministic pipe-synchronized fixtures pause between the real absence check
+and creation, install a concurrent winner, then let the real mkdir or O_EXCL
+creation lose. Correct winners proceed; unsafe mode/ownership/type/symlink
+winners are rejected without repair or callback execution. The new exact commit
+requires fresh CC real-reboot qualification before any HQ deployment.
 
 ## Review and deployment gates
 

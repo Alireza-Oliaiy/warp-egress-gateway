@@ -29,7 +29,7 @@ from admin import helper as source_helper
 from admin.protocol import encode_request
 from admin_console_test import open_session, request, running_server
 
-BUNDLE_PATH = "/opt/warp-egress-admin-console/readonly/v2"
+BUNDLE_PATH = "/opt/warp-egress-admin-console/readonly/v3"
 LAUNCHER_PATH = BUNDLE_PATH + "/evaluate.py"
 SHELL_FILES = ("health-readonly.sh", "common.sh", "routing.sh", "admin-lock.sh",
                "healthcheck-lib.sh", "observation-entrypoints.sh", "intent-state.sh", "intent-state.py")
@@ -286,6 +286,21 @@ class AdminFoundationTests(unittest.TestCase):
         self.assertEqual(snapshot(self.bundle), before)
         self.assert_core_unchanged()
 
+    def test_corrected_bundle_does_not_rewrite_previous_immutable_version(self):
+        legacy = self.bundle.parent / "v2"
+        legacy.mkdir(parents=True, mode=0o755)
+        for name in FILES:
+            path = legacy / name
+            path.write_bytes(b"prior immutable bundle fixture\n")
+            path.chmod(0o755 if name == "evaluate.py" else 0o644)
+        before = snapshot(legacy)
+        installed = self.install()
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertNotEqual(self.bundle, legacy)
+        self.assertTrue(self.bundle.is_dir())
+        self.assertEqual(snapshot(legacy), before)
+        self.assert_core_unchanged()
+
     def test_no_recovery_even_with_auto_recover_and_failed_dataplane(self):
         installed = self.install()
         self.assertEqual(installed.returncode, 0, installed.stderr)
@@ -421,7 +436,7 @@ class AdminFoundationTests(unittest.TestCase):
         # Exercise a real failing install command in the isolated TEST_MODE path.
         stub = self.probes / "install"
         stub.write_text('#!/bin/bash\nfor arg in "$@"; do\n'
-                        'case "$arg" in */.v2.*/healthcheck-lib.sh.tmp.*) exit 91;; esac\ndone\n'
+                        'case "$arg" in */.v3.*/healthcheck-lib.sh.tmp.*) exit 91;; esac\ndone\n'
                         'exec /usr/bin/install "$@"\n')
         stub.chmod(0o755)
         self.env["PATH"] = str(self.probes) + ":" + os.environ["PATH"]
